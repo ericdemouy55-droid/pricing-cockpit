@@ -13,10 +13,13 @@ class AppTests(unittest.TestCase):
         self.assertEqual([metric.value for metric in app.metric], ['+0.41 %', '+0.55 %', '+0.36 %', '+0.44 %'])
         seasons = app.dataframe[0].value
         self.assertEqual(len(seasons), 18)
-        self.assertEqual(seasons['Réf. comparées'].sum(), 66)
+        self.assertNotIn('Réf. comparées', seasons.columns)
+        self.assertTrue(seasons.loc[seasons.Marque.eq('Michelin'), 'Écart Eurotyre / marché (%)'].eq(3).all())
+        self.assertIn('Écart des prix vs marché', [heading.value for heading in app.subheader])
         self.assertTrue(seasons['Marché / BF (%)'].eq(37.5).all())
         brands = app.dataframe[1].value
         self.assertEqual(len(brands), 6)
+        self.assertNotIn('Réf. comparées', brands.columns)
         self.assertEqual(brands.loc[brands.Marque.eq('Michelin'), 'Écart moyen (%)'].iloc[0], 3)
         app.selectbox[0].set_value('Michelin').run()
         self.assertEqual(app.dataframe[0].value.Marque.tolist(), ['Michelin'] * 3)

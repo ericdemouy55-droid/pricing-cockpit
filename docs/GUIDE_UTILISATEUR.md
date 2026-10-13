@@ -20,7 +20,7 @@
 ## Vue d’ensemble — Outil prix Eurotyre
 - Quatre indicateurs affichent l’écart moyen commerçant/marché toutes marques confondues : Été, Hiver, Toutes saisons, et Total. Chaque moyenne est calculée par référence comparable ; le Total porte sur l’ensemble des références des trois saisons.
 - Les menus Marque et Saison filtrent le tableau des remises moyennes. Les quatre indicateurs portent sur l’ensemble du catalogue.
-- Par marque et saison : remise moyenne marché/BF et remise moyenne commerçant/BF.
+- Par marque et saison : écart moyen Eurotyre/marché en %, remise moyenne marché/BF et remise moyenne commerçant/BF.
 - Remise par référence (%) = (1 − prix HT / BF HT) × 100.
 - Par marque, toutes saisons confondues : écart moyen commerçant/marché.
 - Écart par référence (%) = (prix commerçant Eurotyre HT / prix marché HT − 1) × 100. Positif : commerçant plus cher ; négatif : commerçant moins cher.
