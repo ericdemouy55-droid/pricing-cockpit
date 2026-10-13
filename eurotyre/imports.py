@@ -81,8 +81,12 @@ def import_rows(rows, mapping, kind):
                 raise ValueError('Sans EAN/référence, charge et vitesse obligatoires.')
             if price is None or price <= 0 or price > 100000:
                 raise ValueError('Prix HT positif (maximum 100 000 €) requis.')
+            if decimal(cash(price)) <= 0:
+                raise ValueError('Prix HT nul après arrondi au centime.')
             if kind == 'bf' and get('net') and (net is None or net <= 0):
                 raise ValueError('PA net HT invalide.')
+            if kind == 'bf' and net is not None and decimal(cash(net)) <= 0:
+                raise ValueError('PA net HT nul après arrondi au centime.')
             date = iso_date(get('validity' if kind == 'bf' else 'date'))
             key = ('ean', ean) if ean else ('tech', norm(brand), ref or dim, load, speed, seas)
             if key in seen:
@@ -96,3 +100,4 @@ def import_rows(rows, mapping, kind):
         except ValueError as e:
             errors.append(f'Ligne {i} : {e}')
     return result, errors
+

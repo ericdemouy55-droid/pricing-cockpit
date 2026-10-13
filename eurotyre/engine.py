@@ -112,7 +112,13 @@ def calculate(state, rules=None):
         elif len(applicable) > 1 and priority(rule) == priority(applicable[1]):
             alerts.append('Conflit de règles')
         pv = Decimal(cash(market * (1 + Decimal(rule['variation']) / 100))) if market is not None and rule and not alerts else None
+        if pv is not None and pv <= 0:
+            alerts.append('PV nul après arrondi au centime')
+            pv = None
         net = Decimal(p['net']) if p['net'] is not None else None
+        if net is not None and net <= 0:
+            alerts.append('PA net HT invalide')
+            net = None
         margin_eur = pv - net if pv is not None and net is not None else None
         marque = margin_eur / pv * 100 if margin_eur is not None else None
         marge = margin_eur / net * 100 if margin_eur is not None else None
@@ -137,3 +143,4 @@ def demo():
             market.append({k: p[k] for k in ('ean', 'ref', 'brand', 'dimension', 'load', 'speed', 'season')} | {'price': cash(price), 'date': '2026-10-13', 'source': 'Données fictives'})
     rules = [parse_rule({'id': 'Générale', 'brand': '', 'min': None, 'max': None, 'season': '', 'variation': 0}), parse_rule({'id': 'Michelin', 'brand': 'Michelin', 'min': None, 'max': None, 'season': '', 'variation': 3}), parse_rule({'id': 'Continental 17+ 4S', 'brand': 'Continental', 'min': 17, 'max': 30, 'season': 'Toutes saisons', 'variation': -2})]
     return {'products': products, 'market': market, 'rules': rules, 'baseline': deepcopy(rules), 'imports': [], 'versions': [], 'audit': [], 'settings': {'min_margin': 20, 'max_deviation': 15}, 'revision': 0}
+

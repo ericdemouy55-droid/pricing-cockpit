@@ -80,6 +80,34 @@ class PricingTests(unittest.TestCase):
         mapping = dict(brand='brand',width='w',height='h',diameter='d',season='season',bf='price',ean='ean')
         rows, errors = import_rows(raw,mapping,'bf'); self.assertFalse(errors); self.assertEqual(rows[0]['dimension'],'205/55 R16')
 
+    def test_import_rejects_amounts_rounded_to_zero(self):
+        mapping = dict(brand='brand', dimension='dim', season='season',
+                       ean='ean', bf='price', price='price', net='net')
+        row = dict(brand='Michelin', dim='205/55R16', season='été',
+                   ean='2000000000001', price='100', net='0.004')
+        for kind, changed in (('bf', row), ('bf', {**row, 'price':'0.004', 'net':''}),
+                              ('market', {**row, 'price':'0.004'})):
+            rows, errors = import_rows([changed], mapping, kind)
+            self.assertFalse(rows)
+            self.assertTrue(any('arrondi' in e for e in errors))
+        rows, errors = import_rows([{**row, 'net':'0.005'}], mapping, 'bf')
+        self.assertFalse(errors)
+        self.assertEqual(rows[0]['net'], '0.01')
+
+    def test_zero_rounded_price_and_cost_block_without_crash(self):
+        s = demo(); s['products'] = s['products'][1:2]
+        s['rules'] = [parse_rule({'id':'discount', 'variation':-90})]
+        s['market'][0]['price'] = '0.01'
+        result = calculate(s)[0]
+        self.assertIsNone(result['recommended'])
+        self.assertIsNone(result['margin'])
+        self.assertTrue(any('PV nul' in a for a in result['alerts']))
+        s['rules'] = [parse_rule({'id':'default', 'variation':0})]
+        s['products'][0]['net'] = '0.00'
+        result = calculate(s)[0]
+        self.assertIn('PA net HT invalide', result['alerts'])
+        self.assertIsNone(result['markup'])
+
     def test_permissions(self):
         with self.assertRaises(PermissionError): mutate(demo(),'version','viewer')
         with self.assertRaises(PermissionError): mutate(demo(),'import','pricing')
@@ -109,3 +137,4 @@ class PricingTests(unittest.TestCase):
             with self.assertRaises(ConflictError): store.save(s,s['revision'])
 
 if __name__ == '__main__': unittest.main()
+
