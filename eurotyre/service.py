@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 import json
 from .engine import calculate, parse_rule, rule_conflicts, decimal
 from .imports import import_rows
+from .rules_grid import apply_discounts
 
-PERMISSIONS = {'admin': {'import', 'rules', 'settings', 'baseline', 'version', 'validate', 'publish'}, 'pricing': {'rules', 'settings', 'baseline', 'version', 'validate', 'publish'}, 'viewer': set()}
+PERMISSIONS = {'admin': {'import', 'rules', 'bf_grid', 'settings', 'baseline', 'version', 'validate', 'publish'}, 'pricing': {'rules', 'bf_grid', 'settings', 'baseline', 'version', 'validate', 'publish'}, 'viewer': set()}
 
 def mutate(state, action, role, user='Démo', **params):
     if action not in PERMISSIONS.get(role, set()):
@@ -27,6 +28,9 @@ def mutate(state, action, role, user='Démo', **params):
             raise ValueError('Les noms de règles doivent être uniques.')
         s['rules'] = rules
         detail = 'Modification des règles'
+    elif action == 'bf_grid':
+        s['rules'] = apply_discounts(s, params['changes'])
+        detail = f"Modification des remises BF : {len(params['changes'])} cellules"
     elif action == 'settings':
         b = decimal(params['max_deviation'])
         if b is None or not 0 <= b <= 100:

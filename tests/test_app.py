@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 APP = str(Path(__file__).resolve().parents[1]/'eurotyre_app.py')
 from streamlit.testing.v1 import AppTest
+from eurotyre.engine import calculate
 
 class AppTests(unittest.TestCase):
     def test_overview_comparisons_and_removed_cost_controls(self):
@@ -45,6 +46,44 @@ class AppTests(unittest.TestCase):
         for tab in ('Imports & rapprochement','Règles tarifaires','Simulation','Catalogue','Versions & diffusion','Guide & historique','Vue d’ensemble'):
             app.sidebar.radio[0].set_value(tab).run()
             self.assertFalse(app.exception, [e.message for e in app.exception])
+
+    def test_bf_grid_filters_draft_save_and_clear(self):
+        app = AppTest.from_file(APP, default_timeout=30).run()
+        app.sidebar.radio[0].set_value('Règles tarifaires').run()
+        app.selectbox(key='rules_brand').set_value('Michelin').run()
+        app.selectbox(key='rules_season').set_value('Été').run()
+        self.assertEqual(len(app.number_input), 7)  # Six remises et le seuil de contrôle.
+        label = 'Remise BF Michelin Été 16"'
+        next(n for n in app.number_input if n.label == label).set_value(40).run()
+        app.selectbox(key='rules_season').set_value('Hiver').run()
+        app.selectbox(key='rules_season').set_value('Été').run()
+        self.assertEqual(next(n for n in app.number_input if n.label == label).value, 40)
+        # Les références de marché restent des textes, sans champ de saisie.
+        self.assertTrue(any(c.value == '37,50 %' for c in app.caption))
+        self.assertFalse(any('Marché' in n.label for n in app.number_input))
+        next(b for b in app.button if b.label == 'Enregistrer les remises BF').click().run()
+        self.assertFalse(app.exception, [e.message for e in app.exception])
+        self.assertEqual(calculate(app.session_state.pricing_state)[36]['recommended'], '70.08')
+        self.assertFalse(app.session_state['bf_grid_draft'])
+        self.assertEqual(next(n for n in app.number_input if n.label == label).value, 40)
+        next(n for n in app.number_input if n.label == label).set_value(None).run()
+        next(b for b in app.button if b.label == 'Enregistrer les remises BF').click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(calculate(app.session_state.pricing_state)[36]['recommended'], '75.19')
+
+    def test_bf_grid_saves_edits_hidden_by_filters(self):
+        app = AppTest.from_file(APP, default_timeout=30).run()
+        app.sidebar.radio[0].set_value('Règles tarifaires').run()
+        app.selectbox(key='rules_brand').set_value('Michelin').run()
+        app.selectbox(key='rules_season').set_value('Été').run()
+        next(n for n in app.number_input if n.label == 'Remise BF Michelin Été 16"').set_value(40).run()
+        app.selectbox(key='rules_season').set_value('Hiver').run()
+        next(n for n in app.number_input if n.label == 'Remise BF Michelin Hiver 17"').set_value(35).run()
+        next(b for b in app.button if b.label == 'Enregistrer les remises BF').click().run()
+        self.assertFalse(app.exception)
+        rules = [r for r in app.session_state.pricing_state['rules'] if r.get('base') == 'bf']
+        self.assertEqual({(r['season'], r['min'], r['discount']) for r in rules},
+                         {('Été', 16, '40.00'), ('Hiver', 17, '35.00')})
 
     def test_version_and_validation_block(self):
         app = AppTest.from_file(APP,default_timeout=30).run()

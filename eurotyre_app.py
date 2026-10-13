@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 import pandas as pd
 import streamlit as st
-from eurotyre.engine import demo, calculate, rule_conflicts, SEASONS
+from eurotyre.engine import demo, calculate, rule_conflicts, SEASONS, DIAMETER_BANDS, decimal, norm
 from eurotyre.imports import read_upload, import_rows, guess, FIELDS, LABELS
 from eurotyre.exports import template, excel_bytes, csv_bytes, export_frame
 from eurotyre.analytics import price_indicators, summarize, overall_market_gap
+from eurotyre.rules_grid import cell_key, grid_brands, saved_discounts, market_discounts
 from eurotyre.service import mutate, PERMISSIONS
 from eurotyre.storage import PostgresStore, ConflictError
 
@@ -97,6 +98,8 @@ def execute(action, **params):
         else:
             changed['revision'] += 1
             st.session_state.pricing_state = changed
+        if action == 'bf_grid':
+            st.session_state.pop('bf_grid_draft', None)
         st.session_state.notice = 'Modification enregistrée.'
         st.rerun()
     except (ValueError, PermissionError) as e:
@@ -227,18 +230,61 @@ elif tab == 'Imports & rapprochement':
             st.dataframe(pd.DataFrame(item['rows']).drop(columns=['id'], errors='ignore'), hide_index=True, width='stretch')
 
 elif tab == 'Règles tarifaires':
-    st.caption('Modifier les valeurs, puis enregistrer pour recalculer. Une règle générale utilise des critères vides ; min = max pour un diamètre unique.')
-    rules_frame = pd.DataFrame(state['rules'])
-    for k in ('min', 'max', 'variation'):
-        rules_frame[k] = pd.to_numeric(rules_frame[k], errors='coerce')
-    edited = st.data_editor(rules_frame, num_rows='dynamic', hide_index=True, width='stretch', disabled=not can('rules'), column_config={'id':st.column_config.TextColumn('Nom', required=True), 'brand':st.column_config.TextColumn('Marque (vide = toutes)'), 'min':st.column_config.NumberColumn('Diamètre min', min_value=13, max_value=30, step=1), 'max':st.column_config.NumberColumn('Diamètre max', min_value=13, max_value=30, step=1), 'season':st.column_config.SelectboxColumn('Saison', options=['']+list(SEASONS)), 'variation':st.column_config.NumberColumn('Variation %', min_value=-90, max_value=100, step=.1), 'active':st.column_config.CheckboxColumn('Active')})
-    if st.button('Enregistrer les règles', disabled=not can('rules'), type='primary'):
-        clean = edited.astype(object).where(pd.notna(edited), None).to_dict('records')
-        execute('rules', rules=clean)
+    st.markdown('**Remises BF à appliquer (%)**')
+    st.caption('Prix Eurotyre HT = BF HT × (1 − remise / 100). Une cellule vide conserve la règle actuelle ; 0 % applique le BF sans remise.')
+    st.caption('Sous chaque ligne : remise moyenne marché / BF, en lecture seule. « — » indique qu’aucun prix marché comparable n’est disponible. Les saisies sont conservées quand tu changes de filtre ; enregistre pour les appliquer.')
+    brands = grid_brands(state)
+    saved = saved_discounts(state['rules'])
+    reference = market_discounts(rows)
+    draft = st.session_state.setdefault('bf_grid_draft', {})
+    widths = [1.8, 1.7, 1, 1, 1, 1, 1, 1.1]
+    header = st.columns(widths, gap='small')
+    brand_filter = header[0].selectbox('Marque', ['Toutes les marques'] + brands, key='rules_brand')
+    season_filter = header[1].selectbox('Saison', ['Toutes les saisons'] + list(SEASONS), key='rules_season')
+    for column, (label, _, _) in zip(header[2:], DIAMETER_BANDS):
+        column.markdown(f'**{label}**')
+        column.caption('Remise BF (%)')
+    if not brands:
+        st.info('Importe un catalogue BF pour renseigner les remises par marque.')
+    for brand in brands:
+        if brand_filter != 'Toutes les marques' and norm(brand_filter) != norm(brand):
+            continue
+        for seas in SEASONS:
+            if season_filter != 'Toutes les saisons' and season_filter != seas:
+                continue
+            with st.container(border=True):
+                line = st.columns(widths, gap='small')
+                line[0].write(f'**{brand}**')
+                line[1].write(seas)
+                for column, (label, low, high) in zip(line[2:], DIAMETER_BANDS):
+                    key = cell_key(brand, seas, low, high)
+                    initial = draft[key]['discount'] if key in draft else saved.get(key)
+                    widget_key = f'bf_cell_{state["revision"]}_{key}'
+                    if widget_key not in st.session_state:
+                        st.session_state[widget_key] = float(initial) if initial is not None else None
+                    value = column.number_input(
+                        f'Remise BF {brand} {seas} {label}', min_value=0., max_value=99.99,
+                        value=None, step=.1, format='%.2f',
+                        placeholder='—', label_visibility='collapsed', disabled=not can('bf_grid'),
+                        key=widget_key)
+                    if decimal(value) != decimal(saved.get(key)):
+                        draft[key] = {'brand': brand, 'season': seas, 'min': low, 'max': high,
+                                      'discount': str(value) if value is not None else None}
+                    else:
+                        draft.pop(key, None)
+                market_line = st.columns(widths, gap='small')
+                market_line[0].caption('Marché (info)')
+                market_line[1].caption(seas)
+                for column, (_, low, high) in zip(market_line[2:], DIAMETER_BANDS):
+                    observed = reference.get(cell_key(brand, seas, low, high))
+                    column.caption(f'{observed.replace(".", ",")} %' if observed is not None else '—')
+    st.caption(f'{len(draft)} cellule(s) modifiée(s), tous filtres confondus.')
+    if st.button('Enregistrer les remises BF', disabled=not can('bf_grid') or not draft, type='primary'):
+        execute('bf_grid', changes=list(draft.values()))
     conflicts = rule_conflicts(state['rules'])
     if conflicts:
         st.error('Conflits bloquants : '+', '.join(conflicts))
-    st.write('**Priorité :** marque + diamètre + saison → marque + diamètre → marque + saison → marque → générale.')
+    st.caption('Les remises BF renseignées sont prioritaires. Les règles déjà enregistrées restent utilisées pour les cellules vides.')
     st.subheader('Seuils de contrôle')
     with st.form('settings'):
         deviation = st.number_input('Écart absolu maximum au marché (%)', min_value=0., max_value=100., value=float(state['settings']['max_deviation']))
@@ -246,7 +292,8 @@ elif tab == 'Règles tarifaires':
             execute('settings', max_deviation=deviation)
 
 elif tab == 'Simulation':
-    st.markdown('<div class="formula"><b>PV recommandé HT = prix marché HT × (1 + variation / 100)</b></div>', unsafe_allow_html=True)
+    st.markdown('<div class="formula"><b>Prix Eurotyre HT = BF HT × (1 − remise BF / 100)</b></div>', unsafe_allow_html=True)
+    st.caption('Les cellules sans remise BF conservent les règles précédemment enregistrées.')
     st.caption('Le scénario de référence fige ses règles. Il est comparé au scénario actuel sur les mêmes données courantes.')
     if st.button('Figer le scénario de référence', disabled=not can('baseline')):
         execute('baseline')
@@ -286,7 +333,7 @@ elif tab == 'Versions & diffusion':
 elif tab == 'Guide & historique':
     st.markdown('''1. Télécharger les modèles et importer BF puis prix marché.
 2. Vérifier les colonnes, les dimensions et les références.
-3. Paramétrer une variation par marque, diamètre et saison, puis enregistrer.
+3. Dans Règles tarifaires, choisir la marque et la saison en tête de grille, saisir les remises BF par tranche de diamètre, puis enregistrer. La ligne Marché sous chaque saisie indique la remise BF moyenne constatée, sans être modifiable.
 4. Contrôler les anomalies et comparer les scénarios.
 5. Créer un brouillon, valider sans anomalie, puis publier en interne.
 6. Exporter la version validée en CSV ou Excel.

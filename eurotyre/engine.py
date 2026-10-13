@@ -6,6 +6,8 @@ import unicodedata
 from uuid import uuid4
 
 SEASONS = ('Été', 'Hiver', 'Toutes saisons')
+DIAMETER_BANDS = (('13–14"', 13, 14), ('15"', 15, 15), ('16"', 16, 16),
+                  ('17"', 17, 17), ('18"', 18, 18), ('19" et +', 19, 30))
 
 def norm(value):
     return ''.join(c for c in unicodedata.normalize('NFD', str(value or '').strip().lower()) if unicodedata.category(c) != 'Mn')
@@ -55,20 +57,35 @@ def parse_rule(rule):
     brand = str(rule.get('brand', '') or '').strip()
     seas = str(rule.get('season', '') or '').strip()
     low, high = decimal(rule.get('min')), decimal(rule.get('max'))
-    variation = decimal(rule.get('variation'))
+    pricing_base = rule.get('base', 'market')
     if not name or len(name) > 80 or len(brand) > 80:
         raise ValueError('Nom de règle requis (80 caractères maximum).')
     if seas and seas not in SEASONS:
         raise ValueError('Saison de règle invalide.')
-    if variation is None or not -90 <= variation <= 100:
-        raise ValueError('Variation entre −90 % et +100 % requise.')
     if (low is None) != (high is None) or (low is not None and (low != int(low) or high != int(high) or not 13 <= low <= high <= 30)):
         raise ValueError('Diamètres : renseigne une plage entière entre 13 et 30 pouces.')
     if not brand and (low is not None or seas):
         raise ValueError('Une règle générale ne peut cibler un diamètre ou une saison.')
-    return {'id': name, 'brand': brand, 'min': int(low) if low else None, 'max': int(high) if high else None, 'season': seas, 'variation': str(variation), 'active': bool(rule.get('active', True))}
+    parsed = {'id': name, 'brand': brand, 'min': int(low) if low else None,
+              'max': int(high) if high else None, 'season': seas,
+              'active': bool(rule.get('active', True))}
+    if pricing_base == 'bf':
+        discount = decimal(rule.get('discount'))
+        if not brand or seas not in SEASONS or (low, high) not in [(a, b) for _, a, b in DIAMETER_BANDS]:
+            raise ValueError('Une remise BF doit cibler une marque, une saison et une tranche de diamètre de la grille.')
+        if discount is None or not 0 <= discount <= Decimal('99.99'):
+            raise ValueError('Remise BF entre 0 % et 99,99 % requise.')
+        return {**parsed, 'base': 'bf', 'discount': cash(discount)}
+    if pricing_base != 'market':
+        raise ValueError('Base de calcul inconnue.')
+    variation = decimal(rule.get('variation'))
+    if variation is None or not -90 <= variation <= 100:
+        raise ValueError('Variation entre −90 % et +100 % requise.')
+    return {**parsed, 'variation': str(variation)}
 
 def priority(r):
+    if r.get('base') == 'bf':
+        return 6
     return (5 if r['season'] else 4) if r['brand'] and r['min'] is not None else (3 if r['season'] else 2) if r['brand'] else 1
 
 def rule_conflicts(rules):
@@ -111,14 +128,26 @@ def calculate(state, rules=None):
             alerts.append('Règle manquante')
         elif len(applicable) > 1 and priority(rule) == priority(applicable[1]):
             alerts.append('Conflit de règles')
-        pv = Decimal(cash(market * (1 + Decimal(rule['variation']) / 100))) if market is not None and rule and not alerts else None
+        pv, variation = None, None
+        if rule and rule.get('base') == 'bf':
+            bf = decimal(p.get('bf'))
+            if bf is None or bf <= 0:
+                alerts.append('BF absent ou invalide')
+            elif 'Conflit de règles' not in alerts:
+                pv = Decimal(cash(bf * (1 - Decimal(rule['discount']) / 100)))
+            if pv is not None and market is not None and market > 0:
+                variation = (pv / market - 1) * 100
+        elif rule:
+            variation = Decimal(rule['variation'])
+            if market is not None and not alerts:
+                pv = Decimal(cash(market * (1 + variation / 100)))
         if pv is not None and pv <= 0:
             alerts.append('PV nul après arrondi au centime')
             pv = None
-        if rule and abs(Decimal(rule['variation'])) > Decimal(str(state['settings']['max_deviation'])):
+        if variation is not None and abs(variation) > Decimal(str(state['settings']['max_deviation'])):
             alerts.append('Écart marché excessif')
         product = {k: v for k, v in p.items() if k not in ('net', 'margin_eur', 'margin', 'markup')}
-        result.append({**product, 'market_price': cash(market) if market is not None else None, 'match': match if market is not None else 'Non rapproché', 'variation': rule['variation'] if rule else None, 'recommended': cash(pv) if pv is not None else None, 'delta': cash(pv - market) if pv is not None else None, 'rule': rule['id'] if rule else '', 'alerts': alerts})
+        result.append({**product, 'market_price': cash(market) if market is not None else None, 'match': match if market is not None else 'Non rapproché', 'variation': cash(variation) if variation is not None else None, 'recommended': cash(pv) if pv is not None else None, 'delta': cash(pv - market) if pv is not None and market is not None else None, 'rule': rule['id'] if rule else '', 'alerts': alerts})
     return result
 
 def demo():

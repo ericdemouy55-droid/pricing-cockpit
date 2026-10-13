@@ -46,6 +46,7 @@ Tests : `python -m unittest discover -s tests -v`.
 ## Architecture
 `eurotyre/engine.py` : Decimal, priorités, rapprochement indexé et anomalies.
 `eurotyre/analytics.py` : remises et écarts HT, moyennes exactes sur références comparables.
+`eurotyre/rules_grid.py` : grille BF, références marché et fusion des cellules modifiées avec les règles existantes.
 `assets/eurotyre_logo.png` : logo transmis par l’utilisateur, conservé sans modification.
 `eurotyre/imports.py` : XLSX/CSV, mapping, dates/dimensions et erreurs.
 `eurotyre/service.py` : contrôles de rôle, mutations, versions et traçabilité.

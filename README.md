@@ -7,7 +7,7 @@ Configuration active : branche `eurotyre-streamlit-v1`, fichier `eurotyre_app.py
 
 - Imports BF et marché réels XLSX/CSV avec assistant de mapping.
 - Rapprochement EAN puis caractéristiques conservatrices ; aucune invention de marché.
-- Règles prioritaires par marque, diamètre et saison, simulation et contrôles de cohérence des prix.
+- Grille de remises BF par marque/saison et six tranches de diamètre (13–14, 15, 16, 17, 18, 19 pouces et +), avec références marché sous chaque ligne ; simulation et contrôles de cohérence des prix.
 - Tableau de bord : remises moyennes marché/BF et commerçant/BF par marque/saison, écart commerçant/marché par marque.
 - Logo Eurotyre fourni intégré ; aucun calcul ni contrôle de marge.
 - Versions brouillon/validée/publiée et exports complets Excel/CSV.
