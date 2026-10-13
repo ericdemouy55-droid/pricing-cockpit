@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 from eurotyre.engine import demo, calculate, rule_conflicts, SEASONS, DIAMETER_BANDS, decimal, norm
 from eurotyre.imports import read_upload, import_rows, guess, FIELDS, LABELS
-from eurotyre.exports import template, excel_bytes, csv_bytes, export_frame
+from eurotyre.exports import template, excel_bytes, csv_bytes, export_frame, pricing_export_frame
 from eurotyre.analytics import price_indicators, summarize, overall_market_gap
 from eurotyre.rules_grid import cell_key, grid_brands, saved_discounts, market_discounts
 from eurotyre.service import mutate, PERMISSIONS
@@ -18,7 +18,7 @@ st.markdown('''<style>
 [data-testid="stAppViewContainer"]{background:#f5f7fb} [data-testid="stSidebar"]{background:white;border-right:1px solid #e5eaf2}
 h1,h2,h3{letter-spacing:-.7px;color:#183254}[data-testid="stMetric"]{background:white;border:1px solid #e5eaf2;border-radius:12px;padding:20px}
 [data-testid="stMetricLabel"]{color:#718199}[data-testid="stMetricValue"]{color:#183f76}
-.eyebrow{color:#155bd7;font-size:11px;font-weight:700;letter-spacing:2px}.subtitle{color:#7788a1;margin-bottom:24px}.formula{background:#102f60;color:white;border-radius:12px;padding:24px;margin-bottom:20px}
+.eyebrow{color:#155bd7;font-size:11px;font-weight:700;letter-spacing:2px}.subtitle{color:#7788a1;margin-bottom:24px}
 [class*="st-key-bf_grid_row_"] [data-testid="stNumberInputField"]{padding-left:6px;padding-right:4px}
 </style>''', unsafe_allow_html=True)
 
@@ -69,7 +69,7 @@ with st.sidebar:
     st.image(str(Path(__file__).parent/'assets'/'eurotyre_logo.png'), width='stretch', alt='Eurotyre — Pneus et services')
     st.caption('PILOTAGE DES PRIX HT')
     st.divider()
-    tab = st.radio('Pilotage tarifaire', ['Vue d’ensemble', 'Imports & rapprochement', 'Règles tarifaires', 'Simulation', 'Catalogue', 'Versions & diffusion', 'Guide & historique'])
+    tab = st.radio('Pilotage tarifaire', ['Vue d’ensemble', 'Imports & rapprochement', 'Règles tarifaires', 'Catalogue', 'Export', 'Versions & diffusion', 'Guide & historique'])
     st.divider()
     st.caption({'admin': 'Administrateur', 'pricing': 'Responsable Pricing', 'viewer': 'Consultation'}[role])
     st.write(user)
@@ -292,22 +292,45 @@ elif tab == 'Règles tarifaires':
         if st.form_submit_button('Enregistrer les seuils', disabled=not can('settings')):
             execute('settings', max_deviation=deviation)
 
-elif tab == 'Simulation':
-    st.markdown('<div class="formula"><b>Prix Eurotyre HT = BF HT × (1 − remise BF / 100)</b></div>', unsafe_allow_html=True)
-    st.caption('Les cellules sans remise BF conservent les règles précédemment enregistrées.')
-    st.caption('Le scénario de référence fige ses règles. Il est comparé au scénario actuel sur les mêmes données courantes.')
-    if st.button('Figer le scénario de référence', disabled=not can('baseline')):
-        execute('baseline')
-    base = {r['id']:r for r in calculate(state, state['baseline'])}
-    compared = []
-    for r in filtered(rows):
-        pv = r['recommended']
-        old = base[r['id']]['recommended']
-        compared.append({'Marque':r['brand'], 'Dimension':r['dimension'], 'Saison':r['season'], 'EAN':r['ean'], 'Prix commerçant référence HT':float(old) if old else None, 'Prix commerçant actuel HT':float(pv) if pv else None, 'Impact €':float(Decimal(pv)-Decimal(old)) if pv and old else None})
-    st.dataframe(pd.DataFrame(compared), hide_index=True, width='stretch', height=480)
-
 elif tab == 'Catalogue':
     catalogue(filtered(rows))
+
+elif tab == 'Export':
+    export_rows, export_rules = rows, state['rules']
+    filename = 'Eurotyre_tarif_courant'
+    st.caption('Prix Eurotyre HT et remises BF · format Excel ou CSV.')
+    if role == 'viewer':
+        available = {v['id']: v for v in state['versions'] if v['status'] in ('Validée', 'Publiée')}
+        if available:
+            selected = st.selectbox('Version à exporter', list(available), key='export_version')
+            version = available[selected]
+            export_rows, export_rules = version['rows'], version['rules']
+            filename = f'Eurotyre_{selected}'
+        else:
+            export_rows = []
+            st.info('Aucune version validée à exporter.')
+    else:
+        st.caption('Tarif courant · remises enregistrées.')
+    exported = pricing_export_frame(export_rows, export_rules)
+    excluded = len(export_rows) - len(exported)
+    st.caption(f'{len(exported)} références avec un prix calculé · EUR HT')
+    if excluded:
+        st.info(f'{excluded} références sans prix calculé sont exclues de cet export.')
+    missing_ean = int(exported['Code EAN'].eq('').sum())
+    if missing_ean:
+        st.warning(f'{missing_ean} références sans code EAN renseigné dans le catalogue.')
+    excel_column, csv_column, _ = st.columns([1, 1, 3])
+    excel_column.download_button('Télécharger Excel', excel_bytes(exported),
+        file_name=f'{filename}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        disabled=exported.empty, key='compact_export_xlsx')
+    csv_column.download_button('Télécharger CSV', csv_bytes(exported),
+        file_name=f'{filename}.csv', mime='text/csv', disabled=exported.empty, key='compact_export_csv')
+    st.dataframe(exported, hide_index=True, width='stretch', height=480, column_config={
+        'Code EAN': st.column_config.TextColumn(help='Code conservé en texte, y compris les zéros initiaux.'),
+        'Prix HT': st.column_config.NumberColumn(format='%.2f €', help='Prix Eurotyre HT calculé.'),
+        'Remise BF (%)': st.column_config.NumberColumn(format='%.2f %%',
+            help='Remise BF renseignée ; pour une ancienne règle, remise équivalente : (1 − prix Eurotyre HT / BF HT) × 100.'),
+    })
 
 elif tab == 'Versions & diffusion':
     st.info('Brouillon → contrôle et validation → publication interne. Toute anomalie est bloquante dans cette V1. Aucun envoi aux franchisés ou aux ERP n’est déclenché.')
@@ -335,9 +358,9 @@ elif tab == 'Guide & historique':
     st.markdown('''1. Télécharger les modèles et importer BF puis prix marché.
 2. Vérifier les colonnes, les dimensions et les références.
 3. Dans Règles tarifaires, choisir la marque et la saison en tête de grille, saisir les remises BF par tranche de diamètre, puis enregistrer. La ligne Marché sous chaque saisie indique la remise BF moyenne constatée, sans être modifiable.
-4. Contrôler les anomalies et comparer les scénarios.
+4. Contrôler les anomalies dans le catalogue.
 5. Créer un brouillon, valider sans anomalie, puis publier en interne.
-6. Exporter la version validée en CSV ou Excel.
+6. Dans Export, télécharger le tarif en Excel ou CSV : Marque, Saison, Code EAN, Prix HT Eurotyre et Remise BF (%). Les références sans prix calculé sont exclues. Le profil Consultation exporte uniquement les versions validées ou publiées.
 
 **Vue d’ensemble.** Les remises marché/BF et commerçant/BF sont calculées par marque et saison : (1 − prix HT / BF HT) × 100. L’écart commerçant/marché est calculé par marque : (prix commerçant HT / prix marché HT − 1) × 100. Les indicateurs sont des moyennes par référence, sur les mêmes références comparables. Un écart positif indique un prix commerçant au-dessus du marché. Les prix absents sont exclus, jamais remplacés par zéro.
 

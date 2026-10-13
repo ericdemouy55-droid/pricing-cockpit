@@ -1,10 +1,11 @@
 from io import BytesIO
 import pandas as pd
-from .engine import demo
+from .engine import demo, decimal, cash
 from .imports import LABELS
 from .analytics import price_indicators
 
 EXPORT = {'ean':'EAN', 'ref':'Référence produit', 'brand':'Marque', 'dimension':'Dimension', 'season':'Saison', 'bf':'Barème fournisseur HT', 'market_price':'Prix marché HT', 'variation':'Variation %', 'recommended':'Prix commerçant Eurotyre HT', 'validity':'Date de validité'}
+PRICING_COLUMNS = ['Marque', 'Saison', 'Code EAN', 'Prix HT', 'Remise BF (%)']
 
 def safe_text(value):
     text = str(value or '')
@@ -26,6 +27,25 @@ def export_frame(version):
         records.append(record)
     return pd.DataFrame(records)
 
+def pricing_export_frame(rows, rules):
+    """Tarif compact : prix Eurotyre calculés et remise BF appliquée ou équivalente."""
+    by_id = {rule['id']: rule for rule in rules}
+    records = []
+    for row in rows:
+        price = decimal(row.get('recommended'))
+        if price is None or price <= 0:
+            continue
+        rule = by_id.get(row.get('rule'), {})
+        discount = decimal(rule.get('discount')) if rule.get('base') == 'bf' else price_indicators(row)['retailer_discount']
+        records.append({
+            'Marque': safe_text(row.get('brand')),
+            'Saison': safe_text(row.get('season')),
+            'Code EAN': safe_text(row.get('ean')),
+            'Prix HT': float(cash(price)),
+            'Remise BF (%)': float(cash(discount)) if discount is not None else None,
+        })
+    return pd.DataFrame(records, columns=PRICING_COLUMNS)
+
 def excel_bytes(frame):
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
@@ -33,7 +53,11 @@ def excel_bytes(frame):
         sheet = writer.sheets['Prix recommandés']
         for col in sheet.columns:
             sheet.column_dimensions[col[0].column_letter].width = min(35, max(14, len(str(col[0].value)) + 3))
+            if col[0].value in ('Code EAN', 'Prix HT', 'Remise BF (%)'):
+                for cell in col[1:]:
+                    cell.number_format = '@' if col[0].value == 'Code EAN' else '0.00'
         sheet.freeze_panes = 'A2'
+        sheet.auto_filter.ref = sheet.dimensions
     return buf.getvalue()
 
 def csv_bytes(frame):

@@ -6,7 +6,7 @@
 3. Dimensions acceptées : 205/55R16, 205/55 R16, 225/45ZR18, ou colonnes largeur/série/diamètre. EAN : 13 chiffres ; références sans EAN : référence fabricant ou charge/vitesse requises. Les dates sont normalisées en AAAA-MM-JJ.
 4. Dans Règles tarifaires, choisir Marque et Saison dans les menus en tête de grille. Saisir une remise BF en % dans les colonnes 13–14, 15, 16, 17, 18 et 19 pouces et +. Enregistrer les remises pour recalculer les prix.
 5. Catalogue : contrôler le BF HT, le prix marché HT, le prix commerçant Eurotyre HT, leurs remises et les anomalies.
-6. Simulation : figer un scénario de référence puis modifier les règles actuelles. La comparaison porte sur les données actuellement importées.
+6. Export : consulter et télécharger en Excel/CSV les colonnes Marque, Saison, Code EAN, Prix HT et Remise BF (%). Le prix HT est le prix Eurotyre calculé. Les références sans prix calculé sont exclues, avec un compteur affiché. Les codes EAN sont conservés en texte, y compris les zéros initiaux.
 7. Versions : créer un brouillon, valider sans anomalie, publier en interne. Un brouillon est un instantané ; après correction, créer une nouvelle version.
 8. Les versions validées et publiées s’exportent en Excel/CSV. Aucun transfert aux ERP ou envoi aux franchisés n’est lancé.
 
@@ -14,8 +14,15 @@
 - Démo : jeu initial de 72 références fictives, session isolée ; modifications temporaires. Les modèles fournis ont 36 références totalement appariées, sans anomalies, pour tester l’export complet.
 - Production : connexion OIDC (Google ou Microsoft), liste d’adresses autorisées par rôle, PostgreSQL externe. L’application refuse de démarrer si ces paramètres manquent.
 - Administrateur : imports, paramètres, règles, versions et sauvegarde JSON.
-- Responsable Pricing : règles, simulations, validation et publication.
+- Responsable Pricing : règles, exports du tarif courant, validation et publication.
 - Consultation : tableaux et exports validés ; aucune écriture autorisée.
+
+## Export
+- Administrateur et Responsable Pricing : tarif courant issu des règles enregistrées. Une saisie non enregistrée dans la grille BF ne modifie pas l’export.
+- Consultation : sélectionner une version validée ou publiée ; aucune exportation d’un brouillon ou du tarif courant.
+- Les fichiers contiennent exactement cinq colonnes, dans cet ordre : Marque, Saison, Code EAN, Prix HT, Remise BF (%).
+- La remise BF est la remise enregistrée lorsqu’une règle BF est utilisée. Pour les anciennes règles de variation du marché, la remise équivalente est calculée ainsi : (1 − prix Eurotyre HT / BF HT) × 100. Les valeurs sont arrondies à deux décimales.
+- Les prix et remises absents ne sont pas inventés. Un code EAN manquant reste vide et est signalé. Les exports détaillés des versions validées restent disponibles dans Versions & diffusion.
 
 ## Règles tarifaires — remises BF
 - Prix Eurotyre HT = BF HT × (1 − remise BF / 100), arrondi au centime. Remises de 0 à 99,99 % ; 0 % correspond au BF sans remise.

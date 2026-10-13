@@ -30,7 +30,7 @@ class AppTests(unittest.TestCase):
         app.selectbox[0].set_value('Toutes les marques').run()
         app.selectbox[1].set_value('Toutes les saisons').run()
         self.assertEqual(len(app.dataframe[0].value), 18)
-        for page in ('Règles tarifaires','Simulation','Catalogue'):
+        for page in ('Règles tarifaires','Catalogue','Export'):
             app.sidebar.radio[0].set_value(page).run()
             self.assertFalse(app.exception)
             for frame in app.dataframe:
@@ -43,9 +43,27 @@ class AppTests(unittest.TestCase):
     def test_all_pages_render(self):
         app = AppTest.from_file(APP,default_timeout=30).run()
         self.assertFalse(app.exception, [e.message for e in app.exception])
-        for tab in ('Imports & rapprochement','Règles tarifaires','Simulation','Catalogue','Versions & diffusion','Guide & historique','Vue d’ensemble'):
+        self.assertNotIn('Simulation', app.sidebar.radio[0].options)
+        for tab in ('Imports & rapprochement','Règles tarifaires','Catalogue','Export','Versions & diffusion','Guide & historique','Vue d’ensemble'):
             app.sidebar.radio[0].set_value(tab).run()
             self.assertFalse(app.exception, [e.message for e in app.exception])
+
+    def test_export_uses_saved_bf_prices_and_exact_columns(self):
+        app = AppTest.from_file(APP, default_timeout=30).run()
+        app.sidebar.radio[0].set_value('Règles tarifaires').run()
+        app.selectbox(key='rules_brand').set_value('Michelin').run()
+        app.selectbox(key='rules_season').set_value('Été').run()
+        next(n for n in app.number_input if n.label == 'Remise BF Michelin Été 16"').set_value(40).run()
+        next(b for b in app.button if b.label == 'Enregistrer les remises BF').click().run()
+        app.sidebar.radio[0].set_value('Export').run()
+        self.assertFalse(app.exception, [e.message for e in app.exception])
+        frame = app.dataframe[0].value
+        self.assertEqual(frame.columns.tolist(), ['Marque', 'Saison', 'Code EAN', 'Prix HT', 'Remise BF (%)'])
+        self.assertEqual(len(frame), 66)
+        row = frame.loc[frame['Code EAN'].eq('2000000000036')].iloc[0]
+        self.assertEqual(row['Prix HT'], 70.08)
+        self.assertEqual(row['Remise BF (%)'], 40)
+        self.assertTrue(any('6 références sans prix calculé' in message.value for message in app.info))
 
     def test_bf_grid_filters_draft_save_and_clear(self):
         app = AppTest.from_file(APP, default_timeout=30).run()
