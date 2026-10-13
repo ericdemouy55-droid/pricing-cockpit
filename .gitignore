@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Eurotyre Streamlit runtime secrets and local data
+.streamlit/secrets.toml
+.env*
+*.db
+*.sqlite*
+backups/
