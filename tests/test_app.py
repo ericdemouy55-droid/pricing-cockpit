@@ -4,6 +4,27 @@ APP = str(Path(__file__).resolve().parents[1]/'eurotyre_app.py')
 from streamlit.testing.v1 import AppTest
 
 class AppTests(unittest.TestCase):
+    def test_overview_comparisons_and_removed_cost_controls(self):
+        app = AppTest.from_file(APP,default_timeout=30).run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.title[0].value, 'Outil prix Eurotyre')
+        seasons = app.dataframe[0].value
+        self.assertEqual(len(seasons), 18)
+        self.assertEqual(seasons['Réf. comparées'].sum(), 66)
+        self.assertTrue(seasons['Marché / BF (%)'].eq(37.5).all())
+        brands = app.dataframe[1].value
+        self.assertEqual(len(brands), 6)
+        self.assertEqual(brands.loc[brands.Marque.eq('Michelin'), 'Écart moyen (%)'].iloc[0], 3)
+        for page in ('Règles tarifaires','Simulation','Catalogue'):
+            app.sidebar.radio[0].set_value(page).run()
+            self.assertFalse(app.exception)
+            for frame in app.dataframe:
+                text = ' '.join(frame.value.columns).lower()
+                self.assertNotIn('marge', text)
+                self.assertNotIn('taux de marque', text)
+                self.assertNotIn('pa net', text)
+            self.assertFalse(any('Taux de marque' in number.label for number in app.number_input))
+
     def test_all_pages_render(self):
         app = AppTest.from_file(APP,default_timeout=30).run()
         self.assertFalse(app.exception, [e.message for e in app.exception])
@@ -30,3 +51,4 @@ class AppTests(unittest.TestCase):
         self.assertFalse(app.dataframe)
 
 if __name__ == '__main__': unittest.main()
+

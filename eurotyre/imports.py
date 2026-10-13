@@ -7,9 +7,9 @@ from zipfile import ZipFile, BadZipFile
 import pandas as pd
 from .engine import norm, dimension, season, decimal, cash, parse_ean
 
-FIELDS = {'bf': ['manufacturer', 'brand', 'ref', 'ean', 'dimension', 'width', 'height', 'diameter', 'load', 'speed', 'season', 'bf', 'net', 'validity'], 'market': ['ean', 'ref', 'brand', 'dimension', 'width', 'height', 'diameter', 'load', 'speed', 'season', 'price', 'date', 'source']}
-LABELS = {'manufacturer': 'Manufacturier', 'brand': 'Marque', 'ref': 'Référence fabricant', 'ean': 'EAN', 'dimension': 'Dimension', 'width': 'Largeur', 'height': 'Série / hauteur', 'diameter': 'Diamètre', 'load': 'Indice de charge', 'speed': 'Indice de vitesse', 'season': 'Saison', 'bf': 'Barème fournisseur HT', 'net': 'PA net HT (facultatif)', 'validity': 'Date de validité', 'price': 'Prix marché HT', 'date': 'Date collecte', 'source': 'Source'}
-ALIASES = {'manufacturer': ['manufacturier', 'manufacturer', 'fournisseur'], 'brand': ['marque', 'brand'], 'ref': ['ref', 'reference', 'reference fabricant', 'reference produit'], 'ean': ['ean', 'code ean', 'gtin'], 'dimension': ['dimension', 'dimensions'], 'width': ['largeur', 'width'], 'height': ['serie', 'hauteur', 'height', 'serie / hauteur'], 'diameter': ['diametre', 'diametre jante', 'diameter'], 'load': ['indice de charge', 'load'], 'speed': ['indice de vitesse', 'speed'], 'season': ['saison', 'season'], 'bf': ['bf', 'bareme fournisseur ht', 'bareme', 'tarif ht'], 'net': ['pa net ht', 'prix achat net ht', 'net'], 'validity': ['date validite', 'date de validite', 'validity'], 'price': ['prix marche ht', 'prix public ht', 'price'], 'date': ['date collecte', 'date de collecte', 'date'], 'source': ['source']}
+FIELDS = {'bf': ['manufacturer', 'brand', 'ref', 'ean', 'dimension', 'width', 'height', 'diameter', 'load', 'speed', 'season', 'bf', 'validity'], 'market': ['ean', 'ref', 'brand', 'dimension', 'width', 'height', 'diameter', 'load', 'speed', 'season', 'price', 'date', 'source']}
+LABELS = {'manufacturer': 'Manufacturier', 'brand': 'Marque', 'ref': 'Référence fabricant', 'ean': 'EAN', 'dimension': 'Dimension', 'width': 'Largeur', 'height': 'Série / hauteur', 'diameter': 'Diamètre', 'load': 'Indice de charge', 'speed': 'Indice de vitesse', 'season': 'Saison', 'bf': 'Barème fournisseur HT', 'validity': 'Date de validité', 'price': 'Prix marché HT', 'date': 'Date collecte', 'source': 'Source'}
+ALIASES = {'manufacturer': ['manufacturier', 'manufacturer', 'fournisseur'], 'brand': ['marque', 'brand'], 'ref': ['ref', 'reference', 'reference fabricant', 'reference produit'], 'ean': ['ean', 'code ean', 'gtin'], 'dimension': ['dimension', 'dimensions'], 'width': ['largeur', 'width'], 'height': ['serie', 'hauteur', 'height', 'serie / hauteur'], 'diameter': ['diametre', 'diametre jante', 'diameter'], 'load': ['indice de charge', 'load'], 'speed': ['indice de vitesse', 'speed'], 'season': ['saison', 'season'], 'bf': ['bf', 'bareme fournisseur ht', 'bareme', 'tarif ht'], 'validity': ['date validite', 'date de validite', 'validity'], 'price': ['prix marche ht', 'prix public ht', 'price'], 'date': ['date collecte', 'date de collecte', 'date'], 'source': ['source']}
 
 def read_upload(data: bytes, filename: str, sheet=None):
     if len(data) > 5 * 1024 * 1024:
@@ -72,7 +72,7 @@ def import_rows(rows, mapping, kind):
             if not dim and all(get(f) for f in ('width', 'height', 'diameter')):
                 dim = dimension(f"{get('width')}/{get('height')}R{get('diameter')}")
             seas, load, speed = season(get('season')), get('load'), get('speed').upper()
-            price, net = decimal(get('bf' if kind == 'bf' else 'price')), decimal(get('net'))
+            price = decimal(get('bf' if kind == 'bf' else 'price'))
             if ean and not re.fullmatch(r'\d{13}', ean):
                 raise ValueError('EAN : 13 chiffres attendus.')
             if not brand or not dim or not seas:
@@ -83,10 +83,6 @@ def import_rows(rows, mapping, kind):
                 raise ValueError('Prix HT positif (maximum 100 000 €) requis.')
             if decimal(cash(price)) <= 0:
                 raise ValueError('Prix HT nul après arrondi au centime.')
-            if kind == 'bf' and get('net') and (net is None or net <= 0):
-                raise ValueError('PA net HT invalide.')
-            if kind == 'bf' and net is not None and decimal(cash(net)) <= 0:
-                raise ValueError('PA net HT nul après arrondi au centime.')
             date = iso_date(get('validity' if kind == 'bf' else 'date'))
             key = ('ean', ean) if ean else ('tech', norm(brand), ref or dim, load, speed, seas)
             if key in seen:
@@ -94,7 +90,7 @@ def import_rows(rows, mapping, kind):
             seen.add(key)
             common = {'ean': ean, 'ref': ref, 'brand': brand, 'dimension': dim, 'load': load, 'speed': speed, 'season': seas}
             if kind == 'bf':
-                result.append(common | {'id': str(uuid4()), 'manufacturer': get('manufacturer') or brand, 'diameter': int(dim.split('R')[1]), 'bf': cash(price), 'net': cash(net) if net is not None else None, 'validity': date})
+                result.append(common | {'id': str(uuid4()), 'manufacturer': get('manufacturer') or brand, 'diameter': int(dim.split('R')[1]), 'bf': cash(price), 'validity': date})
             else:
                 result.append(common | {'price': cash(price), 'date': date, 'source': get('source') or 'Fichier fourni'})
         except ValueError as e:

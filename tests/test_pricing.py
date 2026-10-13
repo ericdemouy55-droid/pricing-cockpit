@@ -47,14 +47,13 @@ class PricingTests(unittest.TestCase):
         s['market'][0]['ref'] = ''; s['market'][0]['speed'] = 'W'
         self.assertIsNone(calculate(s)[0]['market_price'])
 
-    def test_margins(self):
-        s = demo(); s['products'][1]['net'] = None
-        self.assertIsNone(calculate(s)[1]['margin'])
-        self.assertIn('PV inférieur au PA net', calculate(s)[10]['alerts'])
-        r = calculate(demo())[1]
-        margin = Decimal(r['recommended'])-Decimal(r['net'])
-        self.assertEqual(r['margin'], cash(margin/Decimal(r['recommended'])*100))
-        self.assertEqual(r['markup'], cash(margin/Decimal(r['net'])*100))
+    def test_prices_ignore_legacy_cost_fields(self):
+        s = demo(); expected = calculate(s)[1]
+        s['products'][1]['net'] = '99999.00'
+        s['settings']['min_margin'] = 99
+        actual = calculate(s)[1]
+        self.assertEqual(actual, expected)
+        self.assertFalse({'net', 'margin', 'margin_eur', 'markup'} & actual.keys())
 
     def test_actual_formats_and_templates(self):
         for kind in ('bf', 'market'):
@@ -82,31 +81,29 @@ class PricingTests(unittest.TestCase):
 
     def test_import_rejects_amounts_rounded_to_zero(self):
         mapping = dict(brand='brand', dimension='dim', season='season',
-                       ean='ean', bf='price', price='price', net='net')
+                       ean='ean', bf='price', price='price')
         row = dict(brand='Michelin', dim='205/55R16', season='été',
-                   ean='2000000000001', price='100', net='0.004')
-        for kind, changed in (('bf', row), ('bf', {**row, 'price':'0.004', 'net':''}),
-                              ('market', {**row, 'price':'0.004'})):
-            rows, errors = import_rows([changed], mapping, kind)
+                   ean='2000000000001', price='0.004')
+        for kind in ('bf', 'market'):
+            rows, errors = import_rows([row], mapping, kind)
             self.assertFalse(rows)
             self.assertTrue(any('arrondi' in e for e in errors))
-        rows, errors = import_rows([{**row, 'net':'0.005'}], mapping, 'bf')
+        rows, errors = import_rows([{**row, 'price':'0.005'}], mapping, 'bf')
         self.assertFalse(errors)
-        self.assertEqual(rows[0]['net'], '0.01')
+        self.assertEqual(rows[0]['bf'], '0.01')
 
-    def test_zero_rounded_price_and_cost_block_without_crash(self):
+    def test_zero_rounded_price_blocks_without_crash(self):
         s = demo(); s['products'] = s['products'][1:2]
         s['rules'] = [parse_rule({'id':'discount', 'variation':-90})]
         s['market'][0]['price'] = '0.01'
         result = calculate(s)[0]
         self.assertIsNone(result['recommended'])
-        self.assertIsNone(result['margin'])
         self.assertTrue(any('PV nul' in a for a in result['alerts']))
         s['rules'] = [parse_rule({'id':'default', 'variation':0})]
         s['products'][0]['net'] = '0.00'
         result = calculate(s)[0]
-        self.assertIn('PA net HT invalide', result['alerts'])
-        self.assertIsNone(result['markup'])
+        self.assertFalse(result['alerts'])
+        self.assertNotIn('net', result)
 
     def test_permissions(self):
         with self.assertRaises(PermissionError): mutate(demo(),'version','viewer')

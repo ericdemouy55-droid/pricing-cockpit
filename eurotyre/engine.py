@@ -115,20 +115,10 @@ def calculate(state, rules=None):
         if pv is not None and pv <= 0:
             alerts.append('PV nul après arrondi au centime')
             pv = None
-        net = Decimal(p['net']) if p['net'] is not None else None
-        if net is not None and net <= 0:
-            alerts.append('PA net HT invalide')
-            net = None
-        margin_eur = pv - net if pv is not None and net is not None else None
-        marque = margin_eur / pv * 100 if margin_eur is not None else None
-        marge = margin_eur / net * 100 if margin_eur is not None else None
-        if pv is not None and net is not None and pv < net:
-            alerts.append('PV inférieur au PA net')
-        if marque is not None and marque < Decimal(str(state['settings']['min_margin'])):
-            alerts.append('Taux de marque insuffisant')
         if rule and abs(Decimal(rule['variation'])) > Decimal(str(state['settings']['max_deviation'])):
             alerts.append('Écart marché excessif')
-        result.append({**p, 'market_price': cash(market) if market is not None else None, 'match': match if market is not None else 'Non rapproché', 'variation': rule['variation'] if rule else None, 'recommended': cash(pv) if pv is not None else None, 'delta': cash(pv - market) if pv is not None else None, 'margin_eur': cash(margin_eur) if margin_eur is not None else None, 'margin': cash(marque) if marque is not None else None, 'markup': cash(marge) if marge is not None else None, 'rule': rule['id'] if rule else '', 'alerts': alerts})
+        product = {k: v for k, v in p.items() if k not in ('net', 'margin_eur', 'margin', 'markup')}
+        result.append({**product, 'market_price': cash(market) if market is not None else None, 'match': match if market is not None else 'Non rapproché', 'variation': rule['variation'] if rule else None, 'recommended': cash(pv) if pv is not None else None, 'delta': cash(pv - market) if pv is not None else None, 'rule': rule['id'] if rule else '', 'alerts': alerts})
     return result
 
 def demo():
@@ -137,10 +127,10 @@ def demo():
     for i in range(72):
         d, b, s = 15 + i % 7, brands[i % 6], SEASONS[(i // 6) % 3]
         price = Decimal(55 + (d - 15) * 18 + (i % 6) * 6)
-        p = {'id': str(uuid4()), 'ean': f'2000000{i:06}', 'ref': f'DEMO-{i + 1}', 'manufacturer': b, 'brand': b, 'dimension': f'{195 + (i % 6) * 10}/{40 if d > 18 else 55} R{d}', 'diameter': d, 'load': '94', 'speed': 'V', 'season': s, 'bf': cash(price * Decimal('1.6')), 'net': cash(price * Decimal('1.1' if i == 10 else '.66')), 'validity': '2026-10-01'}
+        p = {'id': str(uuid4()), 'ean': f'2000000{i:06}', 'ref': f'DEMO-{i + 1}', 'manufacturer': b, 'brand': b, 'dimension': f'{195 + (i % 6) * 10}/{40 if d > 18 else 55} R{d}', 'diameter': d, 'load': '94', 'speed': 'V', 'season': s, 'bf': cash(price * Decimal('1.6')), 'validity': '2026-10-01'}
         products.append(p)
         if i % 13:
             market.append({k: p[k] for k in ('ean', 'ref', 'brand', 'dimension', 'load', 'speed', 'season')} | {'price': cash(price), 'date': '2026-10-13', 'source': 'Données fictives'})
     rules = [parse_rule({'id': 'Générale', 'brand': '', 'min': None, 'max': None, 'season': '', 'variation': 0}), parse_rule({'id': 'Michelin', 'brand': 'Michelin', 'min': None, 'max': None, 'season': '', 'variation': 3}), parse_rule({'id': 'Continental 17+ 4S', 'brand': 'Continental', 'min': 17, 'max': 30, 'season': 'Toutes saisons', 'variation': -2})]
-    return {'products': products, 'market': market, 'rules': rules, 'baseline': deepcopy(rules), 'imports': [], 'versions': [], 'audit': [], 'settings': {'min_margin': 20, 'max_deviation': 15}, 'revision': 0}
+    return {'products': products, 'market': market, 'rules': rules, 'baseline': deepcopy(rules), 'imports': [], 'versions': [], 'audit': [], 'settings': {'max_deviation': 15}, 'revision': 0}
 

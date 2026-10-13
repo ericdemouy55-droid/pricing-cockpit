@@ -8,15 +8,15 @@ import streamlit as st
 from eurotyre.engine import demo, calculate, rule_conflicts, SEASONS
 from eurotyre.imports import read_upload, import_rows, guess, FIELDS, LABELS
 from eurotyre.exports import template, excel_bytes, csv_bytes, export_frame
+from eurotyre.analytics import price_indicators, summarize
 from eurotyre.service import mutate, PERMISSIONS
 from eurotyre.storage import PostgresStore, ConflictError
 
-st.set_page_config(page_title='Eurotyre · Pricing Manager', page_icon='🛞', layout='wide')
+st.set_page_config(page_title='Outil prix Eurotyre', page_icon='🛞', layout='wide')
 st.markdown('''<style>
 [data-testid="stAppViewContainer"]{background:#f5f7fb} [data-testid="stSidebar"]{background:white;border-right:1px solid #e5eaf2}
 h1,h2,h3{letter-spacing:-.7px;color:#183254}[data-testid="stMetric"]{background:white;border:1px solid #e5eaf2;border-radius:12px;padding:20px}
 [data-testid="stMetricLabel"]{color:#718199}[data-testid="stMetricValue"]{color:#183f76}
-.brand{font:italic 900 32px Arial;color:#155bd7;letter-spacing:-1.6px}.brand span{color:#102f60}.underline{height:5px;width:160px;background:#ffd000;margin:4px 0 15px;transform:skew(-14deg)}
 .eyebrow{color:#155bd7;font-size:11px;font-weight:700;letter-spacing:2px}.subtitle{color:#7788a1;margin-bottom:24px}.formula{background:#102f60;color:white;border-radius:12px;padding:24px;margin-bottom:20px}
 </style>''', unsafe_allow_html=True)
 
@@ -64,8 +64,8 @@ else:
     state = deepcopy(st.session_state.pricing_state)
 
 with st.sidebar:
-    st.markdown('<div class="brand">EURO<span>TYRE</span></div><div class="underline"></div>', unsafe_allow_html=True)
-    st.caption('PRICING MANAGER · VERSION STREAMLIT')
+    st.image(str(Path(__file__).parent/'assets'/'eurotyre_logo.png'), width='stretch', alt='Eurotyre — Pneus et services')
+    st.caption('PILOTAGE DES PRIX HT')
     st.divider()
     tab = st.radio('Pilotage tarifaire', ['Vue d’ensemble', 'Imports & rapprochement', 'Règles tarifaires', 'Simulation', 'Catalogue', 'Versions & diffusion', 'Guide & historique'])
     st.divider()
@@ -77,7 +77,7 @@ with st.sidebar:
         st.info('Démo · données fictives · sauvegarde limitée à cette session.')
 
 st.markdown('<div class="eyebrow">EUROTYRE / PRICING</div>', unsafe_allow_html=True)
-st.title('Tes prix. Une vision claire.' if tab == 'Vue d’ensemble' else tab)
+st.title('Outil prix Eurotyre' if tab == 'Vue d’ensemble' else tab)
 st.markdown('<div class="subtitle">Recommandations de prix publics HT · Pneumatiques tourisme, camionnette et SUV</div>', unsafe_allow_html=True)
 if mode == 'demo':
     st.warning('DÉMONSTRATION — données fictives uniquement. Les modifications ne survivent pas à la fermeture complète de la session. Le mode production utilise PostgreSQL et une connexion contrôlée.')
@@ -85,7 +85,6 @@ if st.session_state.get('notice'):
     st.success(st.session_state.pop('notice'))
 
 rows = calculate(state)
-ready = [r for r in rows if r['recommended'] is not None and not r['alerts']]
 matched = [r for r in rows if r['market_price'] is not None]
 alerts = [r for r in rows if r['alerts']]
 can = lambda action: action in PERMISSIONS[role]
@@ -117,39 +116,55 @@ def filtered(items):
 def catalogue(items):
     records = []
     for r in items:
-        record = {k: r.get(k) for k in ('brand', 'dimension', 'season', 'ean', 'bf', 'net', 'market_price', 'variation', 'recommended', 'delta', 'margin_eur', 'margin', 'markup', 'rule', 'match')}
-        for k in ('bf', 'net', 'market_price', 'variation', 'recommended', 'delta', 'margin_eur', 'margin', 'markup'):
+        record = {k: r.get(k) for k in ('brand', 'dimension', 'season', 'ean', 'bf', 'market_price', 'variation', 'recommended', 'delta', 'rule', 'match')}
+        record.update(price_indicators(r))
+        for k in ('bf', 'market_price', 'variation', 'recommended', 'delta', 'market_discount', 'retailer_discount', 'market_gap'):
             record[k] = float(record[k]) if record[k] is not None else None
         record['alerts'] = ' · '.join(r['alerts']) or 'Conforme'
         records.append(record)
-    names = {'brand': 'Marque', 'dimension': 'Dimension', 'season': 'Saison', 'ean': 'EAN', 'bf': 'BF HT', 'net': 'PA net HT', 'market_price': 'Marché HT', 'variation': 'Variation %', 'recommended': 'PV recommandé HT', 'delta': 'Écart €', 'margin_eur': 'Marge brute €', 'margin': 'Taux de marque %', 'markup': 'Taux de marge %', 'rule': 'Règle', 'match': 'Rapprochement', 'alerts': 'Contrôle'}
-    st.caption(f'{len(items)} références · EUR HT')
+    names = {'brand': 'Marque', 'dimension': 'Dimension', 'season': 'Saison', 'ean': 'EAN', 'bf': 'BF HT', 'market_price': 'Marché HT', 'variation': 'Variation %', 'recommended': 'Prix commerçant Eurotyre HT', 'delta': 'Écart €', 'market_discount': 'Remise marché / BF (%)', 'retailer_discount': 'Remise commerçant / BF (%)', 'market_gap': 'Écart commerçant / marché (%)', 'rule': 'Règle', 'match': 'Rapprochement', 'alerts': 'Contrôle'}
+    st.caption(f"{len(items)} {'référence' if len(items) == 1 else 'références'} · EUR HT")
     st.dataframe(pd.DataFrame(records).rename(columns=names), hide_index=True, width='stretch', height=480)
 
 if tab == 'Vue d’ensemble':
+    season_summary = summarize(rows)
+    brand_summary = summarize(rows, by_season=False)
+    compared_count = sum(item['compared'] for item in brand_summary)
     a, b, c, d = st.columns(4)
     a.metric('Références au catalogue', len(rows))
-    b.metric('Rapprochement marché', f'{len(matched) / len(rows) * 100:.0f} %' if rows else '0 %')
-    c.metric('Prix conformes', len(ready))
+    b.metric('Références comparées', compared_count)
+    c.metric('Couverture de comparaison', f'{compared_count / len(rows) * 100:.0f} %' if rows else '0 %')
     d.metric('Références à contrôler', len(alerts))
-    left, right = st.columns([1.25, 1])
+    st.subheader('Remises moyennes par marque et saison')
+    st.caption('Remise vs BF HT = (1 − prix HT / BF HT) × 100. Les deux moyennes portent sur les mêmes références comparables, sans pondération de volume.')
+    season_frame = pd.DataFrame([{
+        'Marque': item['brand'], 'Saison': item['season'], 'Réf. comparées': item['compared'],
+        'Marché / BF (%)': float(item['market_discount']) if item['market_discount'] is not None else None,
+        'Commerçant / BF (%)': float(item['retailer_discount']) if item['retailer_discount'] is not None else None,
+    } for item in season_summary], columns=['Marque', 'Saison', 'Réf. comparées', 'Marché / BF (%)', 'Commerçant / BF (%)'])
+    st.dataframe(season_frame, hide_index=True, width='stretch', height=400, column_config={
+        'Marché / BF (%)': st.column_config.NumberColumn(format='%.2f %%', help='Moyenne des remises (1 − prix marché HT / BF HT) × 100.'),
+        'Commerçant / BF (%)': st.column_config.NumberColumn(format='%.2f %%', help='Moyenne des remises (1 − prix commerçant Eurotyre HT / BF HT) × 100.'),
+    })
+    if compared_count < len(rows):
+        st.info(f'{len(rows) - compared_count} références sans comparaison complète : BF, prix marché et prix commerçant calculé sont nécessaires. Les valeurs absentes ne sont pas remplacées par zéro.')
+    st.subheader('Écart moyen commerçant / marché par marque')
+    st.caption('Écart = (prix commerçant Eurotyre HT / prix marché HT − 1) × 100, puis moyenne par marque, toutes saisons confondues. + = au-dessus du marché ; − = en dessous.')
+    brand_frame = pd.DataFrame([{
+        'Marque': item['brand'], 'Réf. comparées': item['compared'],
+        'Écart moyen (%)': float(item['market_gap']) if item['market_gap'] is not None else None,
+    } for item in brand_summary], columns=['Marque', 'Réf. comparées', 'Écart moyen (%)'])
+    left, right = st.columns([1.15, 1])
     with left:
-        st.subheader('Positionnement au marché')
-        calculated = [r for r in rows if r['recommended'] is not None]
-        avg = sum(Decimal(r['variation']) for r in calculated) / len(calculated) if calculated else Decimal(0)
-        st.metric('Variation moyenne non pondérée', f'{avg:+.2f} %')
-        st.caption('Moyenne des règles appliquées sur les produits calculables. Les pourcentages ne se cumulent pas.')
-        st.info(f'{len(alerts)} références doivent être contrôlées avant validation.')
+        st.dataframe(brand_frame, hide_index=True, width='stretch', column_config={
+            'Écart moyen (%)': st.column_config.NumberColumn(format='%+.2f %%')
+        })
     with right:
-        st.subheader('Répartition par marque')
-        st.bar_chart(pd.Series([r['brand'] for r in rows], dtype=str).value_counts(), color='#155bd7', horizontal=True)
-    a, b = st.columns(2)
-    with a:
-        st.subheader('Par saison')
-        st.bar_chart(pd.Series([r['season'] for r in rows], dtype=str).value_counts(), color='#155bd7')
-    with b:
-        st.subheader('Par diamètre')
-        st.bar_chart(pd.Series([r['diameter'] for r in rows], dtype=int).value_counts().sort_index(), color='#E6B900')
+        chart = brand_frame.dropna(subset=['Écart moyen (%)']).set_index('Marque')
+        if not chart.empty:
+            st.bar_chart(chart[['Écart moyen (%)']], color='#D4B000', horizontal=True, height=280)
+        else:
+            st.info('Aucune référence comparable à afficher.')
     st.subheader('Catalogue & recommandations')
     catalogue(filtered(rows))
 
@@ -213,11 +228,9 @@ elif tab == 'Règles tarifaires':
     st.write('**Priorité :** marque + diamètre + saison → marque + diamètre → marque + saison → marque → générale.')
     st.subheader('Seuils de contrôle')
     with st.form('settings'):
-        a, b = st.columns(2)
-        minimum = a.number_input('Taux de marque minimum (%)', min_value=0., max_value=99., value=float(state['settings']['min_margin']))
-        deviation = b.number_input('Écart absolu maximum au marché (%)', min_value=0., max_value=100., value=float(state['settings']['max_deviation']))
+        deviation = st.number_input('Écart absolu maximum au marché (%)', min_value=0., max_value=100., value=float(state['settings']['max_deviation']))
         if st.form_submit_button('Enregistrer les seuils', disabled=not can('settings')):
-            execute('settings', min_margin=minimum, max_deviation=deviation)
+            execute('settings', max_deviation=deviation)
 
 elif tab == 'Simulation':
     st.markdown('<div class="formula"><b>PV recommandé HT = prix marché HT × (1 + variation / 100)</b></div>', unsafe_allow_html=True)
@@ -229,7 +242,7 @@ elif tab == 'Simulation':
     for r in filtered(rows):
         pv = r['recommended']
         old = base[r['id']]['recommended']
-        compared.append({'Marque':r['brand'], 'Dimension':r['dimension'], 'Saison':r['season'], 'EAN':r['ean'], 'PV référence HT':float(old) if old else None, 'PV actuel HT':float(pv) if pv else None, 'Impact €':float(Decimal(pv)-Decimal(old)) if pv and old else None, 'Taux de marque %':float(r['margin']) if r['margin'] else None})
+        compared.append({'Marque':r['brand'], 'Dimension':r['dimension'], 'Saison':r['season'], 'EAN':r['ean'], 'Prix commerçant référence HT':float(old) if old else None, 'Prix commerçant actuel HT':float(pv) if pv else None, 'Impact €':float(Decimal(pv)-Decimal(old)) if pv and old else None})
     st.dataframe(pd.DataFrame(compared), hide_index=True, width='stretch', height=480)
 
 elif tab == 'Catalogue':
@@ -265,13 +278,13 @@ elif tab == 'Guide & historique':
 5. Créer un brouillon, valider sans anomalie, puis publier en interne.
 6. Exporter la version validée en CSV ou Excel.
 
-**BF ≠ PA net.** Sans prix d’achat net réel, les marges restent absentes. Marge brute = PV − PA ; taux de marque = marge / PV ; taux de marge = marge / PA. Les prix sont arrondis au centime avec Decimal, demi supérieur.
+**Vue d’ensemble.** Les remises marché/BF et commerçant/BF sont calculées par marque et saison : (1 − prix HT / BF HT) × 100. L’écart commerçant/marché est calculé par marque : (prix commerçant HT / prix marché HT − 1) × 100. Les indicateurs sont des moyennes par référence, sur les mêmes références comparables. Un écart positif indique un prix commerçant au-dessus du marché. Les prix absents sont exclus, jamais remplacés par zéro.
 
 **Rapprochement conservateur.** Sans EAN, la marque, la dimension et la saison ne suffisent pas : une référence fabricant ou les indices charge/vitesse sont requis. Les prix de marché ne sont jamais inventés.
 
 **Persistance.** Démo : session isolée et données fictives. Production : PostgreSQL externe et authentification OIDC, avec rôles attribués dans les Secrets. Le stockage local de Streamlit Cloud n’est pas utilisé pour conserver des données réelles.
 
-**Identité graphique.** En-tête typographique provisoire ; logo Eurotyre officiel à intégrer lorsqu’il sera fourni.''')
+**Identité graphique.** Logo Eurotyre fourni, intégré dans la navigation.''')
     if role == 'admin':
         st.download_button('Sauvegarder l’espace (JSON)', json.dumps(state, ensure_ascii=False, indent=2).encode(), file_name='Eurotyre_sauvegarde.json', mime='application/json')
     st.subheader('Journal d’activité')
@@ -282,4 +295,5 @@ elif tab == 'Guide & historique':
             st.download_button(name.replace('_', ' ').replace('.md',''), path.read_bytes(), file_name=name)
 
 st.divider()
-st.caption('Eurotyre Pricing Manager · V1 Streamlit · Prix publics recommandés HT · Données initiales fictives')
+st.caption('Outil prix Eurotyre · Prix publics commerçants HT · Données initiales fictives')
+

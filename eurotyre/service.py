@@ -28,10 +28,10 @@ def mutate(state, action, role, user='Démo', **params):
         s['rules'] = rules
         detail = 'Modification des règles'
     elif action == 'settings':
-        a, b = decimal(params['min_margin']), decimal(params['max_deviation'])
-        if a is None or b is None or not 0 <= a <= 99 or not 0 <= b <= 100:
+        b = decimal(params['max_deviation'])
+        if b is None or not 0 <= b <= 100:
             raise ValueError('Seuils invalides.')
-        s['settings'] = {'min_margin': float(a), 'max_deviation': float(b)}
+        s['settings'] = {'max_deviation': float(b)}
         detail = 'Modification des seuils'
     elif action == 'baseline':
         s['baseline'] = deepcopy(s['rules'])
@@ -60,3 +60,4 @@ def mutate(state, action, role, user='Démo', **params):
     if len(json.dumps(s).encode()) > 30 * 1024 * 1024:
         raise ValueError('Espace de démonstration limité à 30 Mo. Archive les versions en dehors de cet espace pour agrandir le catalogue.')
     return s
+

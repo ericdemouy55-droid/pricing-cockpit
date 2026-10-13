@@ -10,8 +10,8 @@ Python : 3.12.
 URL : https://eurotyre-pricing-manager.streamlit.app/
 Espace Streamlit : `ericdemouy55-droid`.
 L'application utilise la branche et le fichier principal ci-dessus, en mode démo sans secrets.
-Le démarrage du tableau de bord a été vérifié dans le navigateur ; les 17 tests automatisés passent en Python 3.12.
-Un contrôle supplémentaire bloque les montants qui deviennent nuls après arrondi au centime, sans faire échouer les calculs de marge.
+Le démarrage du tableau de bord a été vérifié dans le navigateur ; les tests automatisés couvrent les imports, le moteur et les comparaisons en Python 3.12.
+Un contrôle supplémentaire bloque les montants qui deviennent nuls après arrondi au centime, avant leur utilisation dans le moteur de prix.
 
 L’ancien `app.py` est conservé. La nouvelle branche est distincte de `main`, afin de garder l’application précédente disponible.
 
@@ -45,6 +45,8 @@ Tests : `python -m unittest discover -s tests -v`.
 
 ## Architecture
 `eurotyre/engine.py` : Decimal, priorités, rapprochement indexé et anomalies.
+`eurotyre/analytics.py` : remises et écarts HT, moyennes exactes sur références comparables.
+`assets/eurotyre_logo.png` : logo transmis par l’utilisateur, conservé sans modification.
 `eurotyre/imports.py` : XLSX/CSV, mapping, dates/dimensions et erreurs.
 `eurotyre/service.py` : contrôles de rôle, mutations, versions et traçabilité.
 `eurotyre/storage.py` : PostgreSQL ; SQLite sert aux tests de persistance et de concurrence.
