@@ -16,6 +16,14 @@ def price_indicators(row):
         'market_gap': (retailer / market - 1) * 100 if valid(market) and valid(retailer) else None,
     }
 
+def overall_market_gap(rows):
+    values = []
+    for row in rows:
+        indicators = price_indicators(row)
+        if all(value is not None for value in indicators.values()):
+            values.append(indicators['market_gap'])
+    return cash(sum(values) / len(values)) if values else None
+
 def summarize(rows, by_season=True):
     groups = {}
     for row in rows:

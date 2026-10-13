@@ -8,7 +8,7 @@ import streamlit as st
 from eurotyre.engine import demo, calculate, rule_conflicts, SEASONS
 from eurotyre.imports import read_upload, import_rows, guess, FIELDS, LABELS
 from eurotyre.exports import template, excel_bytes, csv_bytes, export_frame
-from eurotyre.analytics import price_indicators, summarize
+from eurotyre.analytics import price_indicators, summarize, overall_market_gap
 from eurotyre.service import mutate, PERMISSIONS
 from eurotyre.storage import PostgresStore, ConflictError
 
@@ -130,22 +130,29 @@ if tab == 'Vue d’ensemble':
     season_summary = summarize(rows)
     brand_summary = summarize(rows, by_season=False)
     compared_count = sum(item['compared'] for item in brand_summary)
-    a, b, c, d = st.columns(4)
-    a.metric('Références au catalogue', len(rows))
-    b.metric('Références comparées', compared_count)
-    c.metric('Couverture de comparaison', f'{compared_count / len(rows) * 100:.0f} %' if rows else '0 %')
-    d.metric('Références à contrôler', len(alerts))
+    global_gap = overall_market_gap(rows)
+    indicator, _ = st.columns([1, 2])
+    indicator.metric('Écart commerçant / marché', f'{Decimal(global_gap):+.2f} %' if global_gap is not None else '—')
+    st.caption('Toutes marques et saisons · moyenne des écarts par référence comparable. + = au-dessus du marché ; − = en dessous.')
     st.subheader('Remises moyennes par marque et saison')
     st.caption('Remise vs BF HT = (1 − prix HT / BF HT) × 100. Les deux moyennes portent sur les mêmes références comparables, sans pondération de volume.')
+    brand_filter, season_filter = st.columns(2)
+    selected_brand = brand_filter.selectbox('Marque', ['Toutes les marques'] + sorted({item['brand'] for item in season_summary}), key='overview_brand')
+    selected_season = season_filter.selectbox('Saison', ['Toutes les saisons'] + list(SEASONS), key='overview_season')
+    selected_summary = [item for item in season_summary
+                        if (selected_brand == 'Toutes les marques' or item['brand'] == selected_brand)
+                        and (selected_season == 'Toutes les saisons' or item['season'] == selected_season)]
     season_frame = pd.DataFrame([{
         'Marque': item['brand'], 'Saison': item['season'], 'Réf. comparées': item['compared'],
         'Marché / BF (%)': float(item['market_discount']) if item['market_discount'] is not None else None,
         'Commerçant / BF (%)': float(item['retailer_discount']) if item['retailer_discount'] is not None else None,
-    } for item in season_summary], columns=['Marque', 'Saison', 'Réf. comparées', 'Marché / BF (%)', 'Commerçant / BF (%)'])
+    } for item in selected_summary], columns=['Marque', 'Saison', 'Réf. comparées', 'Marché / BF (%)', 'Commerçant / BF (%)'])
     st.dataframe(season_frame, hide_index=True, width='stretch', height=400, column_config={
         'Marché / BF (%)': st.column_config.NumberColumn(format='%.2f %%', help='Moyenne des remises (1 − prix marché HT / BF HT) × 100.'),
         'Commerçant / BF (%)': st.column_config.NumberColumn(format='%.2f %%', help='Moyenne des remises (1 − prix commerçant Eurotyre HT / BF HT) × 100.'),
     })
+    if season_frame.empty:
+        st.caption('Aucune référence pour cette sélection de marque et saison.')
     if compared_count < len(rows):
         st.info(f'{len(rows) - compared_count} références sans comparaison complète : BF, prix marché et prix commerçant calculé sont nécessaires. Les valeurs absentes ne sont pas remplacées par zéro.')
     st.subheader('Écart moyen commerçant / marché par marque')

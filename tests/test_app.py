@@ -8,6 +8,9 @@ class AppTests(unittest.TestCase):
         app = AppTest.from_file(APP,default_timeout=30).run()
         self.assertFalse(app.exception)
         self.assertEqual(app.title[0].value, 'Outil prix Eurotyre')
+        self.assertEqual(len(app.metric), 1)
+        self.assertEqual(app.metric[0].label, 'Écart commerçant / marché')
+        self.assertEqual(app.metric[0].value, '+0.44 %')
         seasons = app.dataframe[0].value
         self.assertEqual(len(seasons), 18)
         self.assertEqual(seasons['Réf. comparées'].sum(), 66)
@@ -15,6 +18,14 @@ class AppTests(unittest.TestCase):
         brands = app.dataframe[1].value
         self.assertEqual(len(brands), 6)
         self.assertEqual(brands.loc[brands.Marque.eq('Michelin'), 'Écart moyen (%)'].iloc[0], 3)
+        app.selectbox[0].set_value('Michelin').run()
+        self.assertEqual(app.dataframe[0].value.Marque.tolist(), ['Michelin'] * 3)
+        app.selectbox[1].set_value('Hiver').run()
+        self.assertEqual(app.dataframe[0].value[['Marque', 'Saison']].values.tolist(), [['Michelin', 'Hiver']])
+        self.assertEqual(app.metric[0].value, '+0.44 %')
+        app.selectbox[0].set_value('Toutes les marques').run()
+        app.selectbox[1].set_value('Toutes les saisons').run()
+        self.assertEqual(len(app.dataframe[0].value), 18)
         for page in ('Règles tarifaires','Simulation','Catalogue'):
             app.sidebar.radio[0].set_value(page).run()
             self.assertFalse(app.exception)

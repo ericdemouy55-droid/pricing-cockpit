@@ -1,11 +1,18 @@
 import unittest
 from decimal import Decimal
-from eurotyre.analytics import price_indicators, summarize
+from eurotyre.analytics import price_indicators, summarize, overall_market_gap
 
 def row(bf, market, retailer, brand='Michelin', season='Été'):
     return dict(bf=bf, market_price=market, recommended=retailer, brand=brand, season=season)
 
 class AnalyticsTests(unittest.TestCase):
+    def test_global_gap_uses_reference_counts_and_ignores_missing_prices(self):
+        rows = [row('100', '80', '88'), row('100', '80', '88'),
+                row('100', '80', '72', brand='Continental'), row('100', None, '100')]
+        self.assertEqual(overall_market_gap(rows), '3.33')
+        self.assertIsNone(overall_market_gap([]))
+        self.assertIsNone(overall_market_gap([row('100', None, '100')]))
+
     def test_reference_percentages_and_sign(self):
         result = price_indicators(row('100', '80', '84'))
         self.assertEqual(result, dict(market_discount=Decimal('20'),
