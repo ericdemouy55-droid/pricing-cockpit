@@ -19,6 +19,7 @@ st.markdown('''<style>
 h1,h2,h3{letter-spacing:-.7px;color:#183254}[data-testid="stMetric"]{background:white;border:1px solid #e5eaf2;border-radius:12px;padding:20px}
 [data-testid="stMetricLabel"]{color:#718199}[data-testid="stMetricValue"]{color:#183f76}
 .eyebrow{color:#155bd7;font-size:11px;font-weight:700;letter-spacing:2px}.subtitle{color:#7788a1;margin-bottom:24px}.formula{background:#102f60;color:white;border-radius:12px;padding:24px;margin-bottom:20px}
+[class*="st-key-bf_grid_row_"] [data-testid="stNumberInputField"]{padding-left:6px;padding-right:4px}
 </style>''', unsafe_allow_html=True)
 
 def config():
@@ -243,7 +244,7 @@ elif tab == 'Règles tarifaires':
     season_filter = header[1].selectbox('Saison', ['Toutes les saisons'] + list(SEASONS), key='rules_season')
     for column, (label, _, _) in zip(header[2:], DIAMETER_BANDS):
         column.markdown(f'**{label}**')
-        column.caption('Remise BF (%)')
+        column.caption('%')
     if not brands:
         st.info('Importe un catalogue BF pour renseigner les remises par marque.')
     for brand in brands:
@@ -252,7 +253,7 @@ elif tab == 'Règles tarifaires':
         for seas in SEASONS:
             if season_filter != 'Toutes les saisons' and season_filter != seas:
                 continue
-            with st.container(border=True):
+            with st.container(border=True, key=f'bf_grid_row_{cell_key(brand, seas, 13, 30)}'):
                 line = st.columns(widths, gap='small')
                 line[0].write(f'**{brand}**')
                 line[1].write(seas)
