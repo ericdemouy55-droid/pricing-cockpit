@@ -36,7 +36,9 @@ def pricing_export_frame(rows, rules):
         if price is None or price <= 0:
             continue
         rule = by_id.get(row.get('rule'), {})
-        discount = decimal(rule.get('discount')) if rule.get('base') == 'bf' else price_indicators(row)['retailer_discount']
+        discount = decimal(row.get('applied_discount'))
+        if discount is None:  # Compatibilité des instantanés créés avant ce champ.
+            discount = decimal(rule.get('discount')) if rule.get('base') == 'bf' else price_indicators(row)['retailer_discount']
         records.append({
             'Marque': safe_text(row.get('brand')),
             'Saison': safe_text(row.get('season')),

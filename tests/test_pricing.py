@@ -5,7 +5,7 @@ from io import BytesIO
 import tempfile
 from pathlib import Path
 import pandas as pd
-from eurotyre.engine import demo, cash, calculate, dimension, parse_rule, rule_conflicts
+from eurotyre.engine import demo, cash, calculate, dimension, parse_rule, rule_conflicts, priority
 from eurotyre.imports import import_rows, read_upload, guess
 from eurotyre.service import mutate
 from eurotyre.storage import SQLiteStore, ConflictError
@@ -18,23 +18,35 @@ class PricingTests(unittest.TestCase):
         self.assertEqual(dimension('999/45R18'), '')
         self.assertEqual(cash('10.005'), '10.01')
 
-    def test_variations(self):
+    def test_legacy_variations_do_not_override_empty_bf_cells(self):
         s = demo(); s['products'] = s['products'][1:2]
         for pct in (5, -3, 0):
             s['rules'] = [parse_rule({'id':'test','variation':pct})]
             r = calculate(s)[0]
-            self.assertEqual(r['recommended'], cash(Decimal(r['market_price']) * (1 + Decimal(pct) / 100)))
+            self.assertEqual(r['recommended'], r['market_price'])
+            self.assertEqual(r['applied_discount'], '37.50')
+            self.assertEqual(r['discount_source'], 'market')
 
     def test_priority(self):
         s = demo(); s['products'] = s['products'][1:2]; p = s['products'][0]
         s['rules'] = [parse_rule({'id':'g','variation':1}), parse_rule({'id':'b','brand':p['brand'],'variation':2}), parse_rule({'id':'bs','brand':p['brand'],'season':p['season'],'variation':3}), parse_rule({'id':'bd','brand':p['brand'],'min':p['diameter'],'max':p['diameter'],'variation':4}), parse_rule({'id':'bds','brand':p['brand'],'min':p['diameter'],'max':p['diameter'],'season':p['season'],'variation':5})]
         for name in ('bds','bd','bs','b','g'):
-            self.assertEqual(calculate(s)[0]['rule'], name); s['rules'].pop()
+            self.assertEqual(max(s['rules'], key=priority)['id'], name); s['rules'].pop()
+        bf = parse_rule({'id':'bf', 'base':'bf', 'discount':40, 'brand':p['brand'],
+                         'min':p['diameter'], 'max':p['diameter'], 'season':p['season']})
+        s['rules'] = [parse_rule({'id':'general','variation':50}), bf]
+        self.assertEqual(calculate(s)[0]['rule'], 'bf')
+        self.assertEqual(calculate(s)[0]['recommended'], '75.84')
 
     def test_overlap_and_ambiguity(self):
         s = demo(); s['rules'].append({**s['rules'][0],'id':'dup'})
         self.assertTrue(rule_conflicts(s['rules']))
+        self.assertNotIn('Conflit de règles', calculate(s)[1]['alerts'])
+        bf = parse_rule({'id':'bf', 'base':'bf', 'discount':40, 'brand':'Continental',
+                         'min':16, 'max':16, 'season':'Été'})
+        s['rules'] += [bf, {**bf, 'id':'bf duplicate'}]
         self.assertIn('Conflit de règles', calculate(s)[1]['alerts'])
+        self.assertIsNone(calculate(s)[1]['recommended'])
         s = demo(); s['market'].append(deepcopy(s['market'][0]))
         self.assertIn('Correspondance ambiguë', calculate(s)[1]['alerts'])
         self.assertIsNone(calculate(s)[0]['recommended'])
@@ -94,12 +106,14 @@ class PricingTests(unittest.TestCase):
 
     def test_zero_rounded_price_blocks_without_crash(self):
         s = demo(); s['products'] = s['products'][1:2]
-        s['rules'] = [parse_rule({'id':'discount', 'variation':-90})]
+        s['products'][0]['bf'] = '0.01'
+        s['rules'] = [parse_rule({'id':'discount', 'base':'bf', 'discount':99.99,
+                                 'brand':'Continental', 'min':16, 'max':16, 'season':'Été'})]
         s['market'][0]['price'] = '0.01'
         result = calculate(s)[0]
         self.assertIsNone(result['recommended'])
         self.assertTrue(any('PV nul' in a for a in result['alerts']))
-        s['rules'] = [parse_rule({'id':'default', 'variation':0})]
+        s['rules'] = []
         s['products'][0]['net'] = '0.00'
         result = calculate(s)[0]
         self.assertFalse(result['alerts'])

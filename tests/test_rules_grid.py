@@ -12,7 +12,7 @@ def change(brand='Michelin', season='Été', low=16, high=16, discount=40):
 
 
 class BFGridTests(unittest.TestCase):
-    def test_bf_price_override_and_clear_preserve_legacy_rules(self):
+    def test_bf_price_override_and_clear_restore_market_discount(self):
         original = demo()
         updated = mutate(original, 'bf_grid', 'pricing', changes=[change()])
         self.assertEqual(updated['rules'][:3], original['rules'])
@@ -25,7 +25,8 @@ class BFGridTests(unittest.TestCase):
         self.assertEqual(calculate(updated)[6]['recommended'], calculate(original)[6]['recommended'])
         cleared = mutate(updated, 'bf_grid', 'pricing', changes=[change(discount=None)])
         self.assertEqual(cleared['rules'], original['rules'])
-        self.assertEqual(calculate(cleared)[36]['recommended'], '75.19')
+        self.assertEqual(calculate(cleared)[36]['recommended'], '73.00')
+        self.assertEqual(calculate(cleared)[36]['applied_discount'], '37.50')
 
     def test_zero_discount_and_actual_market_deviation(self):
         state = mutate(demo(), 'bf_grid', 'pricing', changes=[change(discount=0)])

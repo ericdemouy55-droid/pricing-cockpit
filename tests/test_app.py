@@ -11,22 +11,22 @@ class AppTests(unittest.TestCase):
         self.assertEqual(app.title[0].value, 'Outil prix Eurotyre')
         self.assertEqual(len(app.metric), 4)
         self.assertEqual([metric.label for metric in app.metric], ['Été', 'Hiver', 'Toutes saisons', 'Total'])
-        self.assertEqual([metric.value for metric in app.metric], ['+0.41 %', '+0.55 %', '+0.36 %', '+0.44 %'])
+        self.assertEqual([metric.value for metric in app.metric], ['+0.00 %'] * 4)
         seasons = app.dataframe[0].value
         self.assertEqual(len(seasons), 18)
         self.assertNotIn('Réf. comparées', seasons.columns)
-        self.assertTrue(seasons.loc[seasons.Marque.eq('Michelin'), 'Écart Eurotyre / marché (%)'].eq(3).all())
+        self.assertTrue(seasons.loc[seasons.Marque.eq('Michelin'), 'Écart Eurotyre / marché (%)'].eq(0).all())
         self.assertIn('Écart des prix vs marché', [heading.value for heading in app.subheader])
         self.assertTrue(seasons['Marché / BF (%)'].eq(37.5).all())
         brands = app.dataframe[1].value
         self.assertEqual(len(brands), 6)
         self.assertNotIn('Réf. comparées', brands.columns)
-        self.assertEqual(brands.loc[brands.Marque.eq('Michelin'), 'Écart moyen (%)'].iloc[0], 3)
+        self.assertEqual(brands.loc[brands.Marque.eq('Michelin'), 'Écart moyen (%)'].iloc[0], 0)
         app.selectbox[0].set_value('Michelin').run()
         self.assertEqual(app.dataframe[0].value.Marque.tolist(), ['Michelin'] * 3)
         app.selectbox[1].set_value('Hiver').run()
         self.assertEqual(app.dataframe[0].value[['Marque', 'Saison']].values.tolist(), [['Michelin', 'Hiver']])
-        self.assertEqual([metric.value for metric in app.metric], ['+0.41 %', '+0.55 %', '+0.36 %', '+0.44 %'])
+        self.assertEqual([metric.value for metric in app.metric], ['+0.00 %'] * 4)
         app.selectbox[0].set_value('Toutes les marques').run()
         app.selectbox[1].set_value('Toutes les saisons').run()
         self.assertEqual(len(app.dataframe[0].value), 18)
@@ -59,11 +59,11 @@ class AppTests(unittest.TestCase):
         self.assertFalse(app.exception, [e.message for e in app.exception])
         frame = app.dataframe[0].value
         self.assertEqual(frame.columns.tolist(), ['Marque', 'Saison', 'Code EAN', 'Prix HT', 'Remise BF (%)'])
-        self.assertEqual(len(frame), 66)
+        self.assertEqual(len(frame), 68)
         row = frame.loc[frame['Code EAN'].eq('2000000000036')].iloc[0]
         self.assertEqual(row['Prix HT'], 70.08)
         self.assertEqual(row['Remise BF (%)'], 40)
-        self.assertTrue(any('6 références sans prix calculé' in message.value for message in app.info))
+        self.assertTrue(any('4 références sans prix calculé' in message.value for message in app.info))
 
     def test_bf_grid_filters_draft_save_and_clear(self):
         app = AppTest.from_file(APP, default_timeout=30).run()
@@ -87,7 +87,12 @@ class AppTests(unittest.TestCase):
         next(n for n in app.number_input if n.label == label).set_value(None).run()
         next(b for b in app.button if b.label == 'Enregistrer les remises BF').click().run()
         self.assertFalse(app.exception)
-        self.assertEqual(calculate(app.session_state.pricing_state)[36]['recommended'], '75.19')
+        self.assertEqual(calculate(app.session_state.pricing_state)[36]['recommended'], '73.00')
+        self.assertIsNone(next(n for n in app.number_input if n.label == label).value)
+        app.sidebar.radio[0].set_value('Export').run()
+        row = app.dataframe[0].value.loc[lambda frame: frame['Code EAN'].eq('2000000000036')].iloc[0]
+        self.assertEqual(row['Prix HT'], 73)
+        self.assertEqual(row['Remise BF (%)'], 37.5)
 
     def test_bf_grid_saves_edits_hidden_by_filters(self):
         app = AppTest.from_file(APP, default_timeout=30).run()

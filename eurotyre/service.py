@@ -41,7 +41,7 @@ def mutate(state, action, role, user='Démo', **params):
         s['baseline'] = deepcopy(s['rules'])
         detail = 'Scénario de référence enregistré'
     elif action == 'version':
-        s['versions'].insert(0, {'id': f"V{len(s['versions']) + 1}", 'date': now, 'status': 'Brouillon', 'rows': calculate(s), 'rules': deepcopy(s['rules']), 'settings': deepcopy(s['settings'])})
+        s['versions'].insert(0, {'id': f"V{len(s['versions']) + 1}", 'date': now, 'status': 'Brouillon', 'rows': calculate(s), 'rules': deepcopy([r for r in s['rules'] if r.get('base') == 'bf']), 'settings': deepcopy(s['settings'])})
         detail = 'Création version brouillon'
     elif action in ('validate', 'publish'):
         version = next((v for v in s['versions'] if v['id'] == params['id']), None)

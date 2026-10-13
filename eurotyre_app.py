@@ -222,7 +222,7 @@ elif tab == 'Imports & rapprochement':
             st.error(f'Lecture impossible : {e}')
     st.subheader('Rapprochement')
     st.metric('Références avec prix marché unique', f'{len(matched)} / {len(rows)}')
-    st.caption('EAN prioritaire, puis marque + dimension + saison et référence fabricant ou charge/vitesse. Les ambiguïtés bloquent le calcul.')
+    st.caption('EAN prioritaire, puis marque + dimension + saison et référence fabricant ou charge/vitesse. Les rapprochements ambigus ne fournissent aucune référence marché et bloquent la validation.')
     st.subheader('Historique des imports')
     if not state['imports']:
         st.caption('Aucun import utilisateur ; jeu fictif initial chargé.')
@@ -232,7 +232,7 @@ elif tab == 'Imports & rapprochement':
 
 elif tab == 'Règles tarifaires':
     st.markdown('**Remises BF à appliquer (%)**')
-    st.caption('Prix Eurotyre HT = BF HT × (1 − remise / 100). Une cellule vide conserve la règle actuelle ; 0 % applique le BF sans remise.')
+    st.caption('Prix Eurotyre HT = BF HT × (1 − remise / 100). Cellule vide : la remise de la ligne Marché ci-dessous s’applique automatiquement. 0 % applique le BF sans remise.')
     st.caption('Sous chaque ligne : remise moyenne marché / BF, en lecture seule. « — » indique qu’aucun prix marché comparable n’est disponible. Les saisies sont conservées quand tu changes de filtre ; enregistre pour les appliquer.')
     brands = grid_brands(state)
     saved = saved_discounts(state['rules'])
@@ -282,10 +282,10 @@ elif tab == 'Règles tarifaires':
     st.caption(f'{len(draft)} cellule(s) modifiée(s), tous filtres confondus.')
     if st.button('Enregistrer les remises BF', disabled=not can('bf_grid') or not draft, type='primary'):
         execute('bf_grid', changes=list(draft.values()))
-    conflicts = rule_conflicts(state['rules'])
+    conflicts = rule_conflicts([r for r in state['rules'] if r.get('base') == 'bf'])
     if conflicts:
         st.error('Conflits bloquants : '+', '.join(conflicts))
-    st.caption('Les remises BF renseignées sont prioritaires. Les règles déjà enregistrées restent utilisées pour les cellules vides.')
+    st.caption('Une remise BF saisie est prioritaire. Une cellule vide utilise la remise moyenne marché de la même marque, saison et tranche de diamètre. Si Marché affiche « — », aucun prix n’est calculé sans remise saisie.')
     st.subheader('Seuils de contrôle')
     with st.form('settings'):
         deviation = st.number_input('Écart absolu maximum au marché (%)', min_value=0., max_value=100., value=float(state['settings']['max_deviation']))
@@ -329,7 +329,7 @@ elif tab == 'Export':
         'Code EAN': st.column_config.TextColumn(help='Code conservé en texte, y compris les zéros initiaux.'),
         'Prix HT': st.column_config.NumberColumn(format='%.2f €', help='Prix Eurotyre HT calculé.'),
         'Remise BF (%)': st.column_config.NumberColumn(format='%.2f %%',
-            help='Remise BF renseignée ; pour une ancienne règle, remise équivalente : (1 − prix Eurotyre HT / BF HT) × 100.'),
+            help='Remise BF appliquée : saisie enregistrée ou, si la cellule est vide, remise moyenne de la ligne Marché correspondante.'),
     })
 
 elif tab == 'Versions & diffusion':

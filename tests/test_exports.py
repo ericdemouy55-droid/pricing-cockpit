@@ -9,18 +9,18 @@ from eurotyre.service import mutate
 
 
 class CompactExportTests(unittest.TestCase):
-    def test_saved_bf_discount_and_legacy_equivalent(self):
+    def test_saved_bf_discount_and_automatic_market_discount(self):
         state = mutate(demo(), 'bf_grid', 'pricing', changes=[{
             'brand': 'Michelin', 'season': 'Été', 'min': 16, 'max': 16, 'discount': '40'}])
         frame = pricing_export_frame(calculate(state), state['rules'])
         self.assertEqual(frame.columns.tolist(), PRICING_COLUMNS)
-        self.assertEqual(len(frame), 66)
+        self.assertEqual(len(frame), 68)
         row = frame.loc[frame['Code EAN'].eq('2000000000036')].iloc[0]
         self.assertEqual(row['Prix HT'], 70.08)
         self.assertEqual(row['Remise BF (%)'], 40)
-        legacy = frame.loc[frame['Code EAN'].eq('2000000000006')].iloc[0]
-        self.assertEqual(legacy['Prix HT'], 167.89)
-        self.assertEqual(legacy['Remise BF (%)'], 35.63)
+        automatic = frame.loc[frame['Code EAN'].eq('2000000000006')].iloc[0]
+        self.assertEqual(automatic['Prix HT'], 163)
+        self.assertEqual(automatic['Remise BF (%)'], 37.5)
 
     def test_applied_discount_is_preserved_after_money_rounding(self):
         rows = [{'brand': 'Michelin', 'season': 'Été', 'ean': '0123456789012',

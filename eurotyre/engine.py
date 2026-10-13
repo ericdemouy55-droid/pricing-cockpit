@@ -97,8 +97,23 @@ def rule_conflicts(rules):
                 out.append(f"{a['id']} / {b['id']}")
     return out
 
-def calculate(state, rules=None):
-    rules = state['rules'] if rules is None else rules
+def market_group(brand, season, diameter):
+    for _, low, high in DIAMETER_BANDS:
+        if low <= diameter <= high:
+            return norm(brand), season, low, high
+    return None
+
+def market_discount_reference(rows):
+    """Remise marché moyenne par cellule, arrondie comme la ligne Marché de la grille."""
+    groups = {}
+    for row in rows:
+        bf, market = decimal(row.get('bf')), decimal(row.get('market_price'))
+        key = market_group(row['brand'], row['season'], row['diameter'])
+        if key is not None and bf is not None and bf > 0 and market is not None and market > 0:
+            groups.setdefault(key, []).append((1 - market / bf) * 100)
+    return {key: cash(sum(values) / len(values)) for key, values in groups.items()}
+
+def match_products(state):
     by_ean, by_ref, by_tech = {}, {}, {}
     def base(p):
         return (norm(p['brand']), p['dimension'], p['season'])
@@ -121,33 +136,52 @@ def calculate(state, rules=None):
             alerts.append('Correspondance ambiguë')
         elif not indices:
             alerts.append('Prix marché absent')
-        market = Decimal(state['market'][indices[0]]['price']) if len(indices) == 1 else None
-        applicable = sorted([r for r in rules if r['active'] and (not r['brand'] or norm(r['brand']) == norm(p['brand'])) and (r['min'] is None or r['min'] <= p['diameter'] <= r['max']) and (not r['season'] or r['season'] == p['season'])], key=priority, reverse=True)
+        market = decimal(state['market'][indices[0]]['price']) if len(indices) == 1 else None
+        product = {k: v for k, v in p.items() if k not in ('net', 'margin_eur', 'margin', 'markup')}
+        result.append({**product, 'market_price': cash(market) if market is not None else None,
+                       'match': match if market is not None else 'Non rapproché', 'alerts': alerts})
+    return result
+
+def calculate(state, rules=None):
+    rules = state['rules'] if rules is None else rules
+    # Les anciennes variations restent archivées mais ne remplacent jamais une
+    # cellule BF vide : son taux provient désormais de la ligne Marché.
+    rules = [r for r in rules if r.get('base') == 'bf' and r['active']]
+    matched = match_products(state)
+    reference = market_discount_reference(matched)
+    result = []
+    for p in matched:
+        market = decimal(p['market_price'])
+        alerts = list(p['alerts'])
+        applicable = [r for r in rules if norm(r['brand']) == norm(p['brand']) and
+                      r['min'] <= p['diameter'] <= r['max'] and r['season'] == p['season']]
         rule = applicable[0] if applicable else None
-        if not rule:
-            alerts.append('Règle manquante')
-        elif len(applicable) > 1 and priority(rule) == priority(applicable[1]):
+        if len(applicable) > 1:
             alerts.append('Conflit de règles')
+        discount = decimal(rule['discount']) if rule else decimal(reference.get(
+            market_group(p['brand'], p['season'], p['diameter'])))
+        if discount is None:
+            alerts.append('Remise marché indisponible')
         pv, variation = None, None
-        if rule and rule.get('base') == 'bf':
-            bf = decimal(p.get('bf'))
-            if bf is None or bf <= 0:
-                alerts.append('BF absent ou invalide')
-            elif 'Conflit de règles' not in alerts:
-                pv = Decimal(cash(bf * (1 - Decimal(rule['discount']) / 100)))
-            if pv is not None and market is not None and market > 0:
-                variation = (pv / market - 1) * 100
-        elif rule:
-            variation = Decimal(rule['variation'])
-            if market is not None and not alerts:
-                pv = Decimal(cash(market * (1 + variation / 100)))
+        bf = decimal(p.get('bf'))
+        if bf is None or bf <= 0:
+            alerts.append('BF absent ou invalide')
+        elif discount is not None and 'Conflit de règles' not in alerts:
+            pv = Decimal(cash(bf * (1 - discount / 100)))
         if pv is not None and pv <= 0:
             alerts.append('PV nul après arrondi au centime')
             pv = None
+        if pv is not None and market is not None and market > 0:
+            variation = (pv / market - 1) * 100
         if variation is not None and abs(variation) > Decimal(str(state['settings']['max_deviation'])):
             alerts.append('Écart marché excessif')
-        product = {k: v for k, v in p.items() if k not in ('net', 'margin_eur', 'margin', 'markup')}
-        result.append({**product, 'market_price': cash(market) if market is not None else None, 'match': match if market is not None else 'Non rapproché', 'variation': cash(variation) if variation is not None else None, 'recommended': cash(pv) if pv is not None else None, 'delta': cash(pv - market) if pv is not None and market is not None else None, 'rule': rule['id'] if rule else '', 'alerts': alerts})
+        result.append({**p, 'variation': cash(variation) if variation is not None else None,
+            'recommended': cash(pv) if pv is not None else None,
+            'delta': cash(pv - market) if pv is not None and market is not None else None,
+            'rule': rule['id'] if rule else 'Remise marché (automatique)' if discount is not None else '',
+            'applied_discount': cash(discount) if discount is not None else None,
+            'discount_source': 'bf' if rule else 'market' if discount is not None else None,
+            'alerts': alerts})
     return result
 
 def demo():

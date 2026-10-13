@@ -1,7 +1,6 @@
 """Grille de remises BF et références marché, sans modifier les règles existantes."""
 from hashlib import sha256
-from .engine import DIAMETER_BANDS, SEASONS, cash, norm, parse_rule, rule_conflicts
-from .analytics import price_indicators
+from .engine import DIAMETER_BANDS, SEASONS, norm, parse_rule, rule_conflicts, market_discount_reference
 
 
 def cell_key(brand, season, low, high):
@@ -25,17 +24,7 @@ def saved_discounts(rules):
 
 def market_discounts(rows):
     """Moyenne des remises marché/BF par référence rapprochée, même sans PV calculé."""
-    groups = {}
-    for row in rows:
-        value = price_indicators(row)['market_discount']
-        if value is None:
-            continue
-        for _, low, high in DIAMETER_BANDS:
-            if low <= row['diameter'] <= high:
-                key = cell_key(row['brand'], row['season'], low, high)
-                groups.setdefault(key, []).append(value)
-                break
-    return {key: cash(sum(values) / len(values)) for key, values in groups.items()}
+    return {cell_key(*key): value for key, value in market_discount_reference(rows).items()}
 
 
 def apply_discounts(state, changes):
@@ -65,8 +54,8 @@ def apply_discounts(state, changes):
         raise ValueError('500 règles maximum.')
     if len({r['id'] for r in rules}) != len(rules):
         raise ValueError('Les noms de règles doivent être uniques.')
-    # Les anciennes règles de marché sont conservées, mais les nouvelles cellules
-    # BF ne peuvent introduire d’ambiguïté dans la grille.
+    # Les anciennes variations restent archivées. Les nouvelles cellules BF ne
+    # peuvent introduire d’ambiguïté dans la grille.
     if rule_conflicts([r for r in rules if r.get('base') == 'bf']):
         raise ValueError('Conflit entre les remises BF.')
     return rules
