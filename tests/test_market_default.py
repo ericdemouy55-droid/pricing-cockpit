@@ -26,7 +26,7 @@ def scenario(items):
 
 
 class AutomaticMarketDiscountTests(unittest.TestCase):
-    def test_empty_cells_use_unweighted_market_mean_in_the_correct_group(self):
+    def test_empty_cells_align_each_ean_and_group_mean_is_information_only(self):
         state = scenario([
             {'market': '50.00'},  # 50 %
             {'brand': 'MICHELIN', 'bf': '200.00', 'market': '160.00'},  # 20 %
@@ -35,23 +35,23 @@ class AutomaticMarketDiscountTests(unittest.TestCase):
             {'brand': 'Continental', 'market': '80.00'},
         ])
         rows = calculate(state)
-        self.assertEqual([r['applied_discount'] for r in rows], ['35.00', '35.00', '10.00', '5.00', '20.00'])
-        self.assertEqual([r['recommended'] for r in rows], ['65.00', '130.00', '90.00', '95.00', '80.00'])
+        self.assertEqual([r['applied_discount'] for r in rows], ['50.00', '20.00', '10.00', '5.00', '20.00'])
+        self.assertEqual([r['recommended'] for r in rows], ['50.00', '160.00', '90.00', '95.00', '80.00'])
         self.assertTrue(all(r['discount_source'] == 'market' for r in rows))
         self.assertEqual(market_discounts(rows)[cell_key('Michelin', 'Été', 16, 16)], '35.00')
 
-    def test_empty_cells_share_the_13_14_and_19_plus_bands(self):
+    def test_empty_cells_never_share_another_eans_market_price(self):
         state = scenario([{'diameter': 13, 'market': '95.00'}, {'diameter': 14, 'market': '65.00'},
                           {'diameter': 19, 'market': '90.00'}, {'diameter': 30, 'market': '50.00'}])
-        self.assertEqual([r['applied_discount'] for r in calculate(state)], ['20.00', '20.00', '30.00', '30.00'])
+        self.assertEqual([r['applied_discount'] for r in calculate(state)], ['5.00', '35.00', '10.00', '50.00'])
 
-    def test_displayed_rate_is_applied_and_exported_after_rounding(self):
+    def test_missing_reference_is_excluded_even_when_group_mean_exists(self):
         state = scenario([{'market': '66.66'}, {'market': '66.65'}, {'bf': '1.45', 'load': '96'}])
         rows = calculate(state)
         self.assertEqual(market_discount_reference(rows)[market_group('Michelin', 'Été', 16)], '33.35')
-        self.assertEqual(rows[2]['recommended'], '0.97')
-        self.assertEqual(rows[2]['applied_discount'], '33.35')
-        self.assertEqual(pricing_export_frame(rows, state['rules']).iloc[2]['Remise BF (%)'], 33.35)
+        self.assertIsNone(rows[2]['recommended'])
+        self.assertIsNone(rows[2]['applied_discount'])
+        self.assertEqual(pricing_export_frame(rows, state['rules'])['Prix HT'].tolist(), [66.66, 66.65])
         self.assertIsNone(rows[2]['market_price'])
         self.assertIn('Prix marché absent', rows[2]['alerts'])
 
@@ -84,8 +84,8 @@ class AutomaticMarketDiscountTests(unittest.TestCase):
             'brand':'Michelin', 'season':'Été', 'min':16, 'max':16, 'discount':40}])
         self.assertEqual(state['versions'][0], archived)
         self.assertEqual(calculate(state)[0]['recommended'], '60.00')
-        self.assertEqual(pricing_export_frame(archived['rows'], archived['rules']).iloc[0]['Prix HT'], 65)
-        self.assertEqual(pricing_export_frame(archived['rows'], archived['rules']).iloc[0]['Remise BF (%)'], 35)
+        self.assertEqual(pricing_export_frame(archived['rows'], archived['rules']).iloc[0]['Prix HT'], 50)
+        self.assertEqual(pricing_export_frame(archived['rows'], archived['rules']).iloc[0]['Remise BF (%)'], 50)
 
 
 if __name__ == '__main__':

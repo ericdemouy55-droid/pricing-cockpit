@@ -142,13 +142,26 @@ def match_products(state):
                        'match': match if market is not None else 'Non rapproché', 'alerts': alerts})
     return result
 
-def calculate(state, rules=None):
+def calculate(state, rules=None, radar_prices=None):
     rules = state['rules'] if rules is None else rules
     # Les anciennes variations restent archivées mais ne remplacent jamais une
-    # cellule BF vide : son taux provient désormais de la ligne Marché.
+    # cellule BF vide : elle s'aligne sur le marché de la référence exacte.
     rules = [r for r in rules if r.get('base') == 'bf' and r['active']]
     matched = match_products(state)
-    reference = market_discount_reference(matched)
+    if radar_prices is not None:
+        for product in matched:
+            observation = radar_prices.get(product['ean'])
+            if observation is not None:
+                product['market_price'] = observation.get('reference')
+                product['market_source'] = observation.get('source')
+                product['market_date'] = observation.get('last')
+                product['market_count'] = observation.get('count', 0)
+                product['alerts'] = [a for a in product['alerts'] if a not in ('Prix marché absent', 'Correspondance ambiguë')]
+                if product['market_price'] is None:
+                    product['alerts'].append('Prix marché absent')
+                    product['match'] = 'Non rapproché'
+                else:
+                    product['match'] = 'EAN · Radar' if observation.get('count') else 'EAN · Référentiel externe'
     result = []
     for p in matched:
         market = decimal(p['market_price'])
@@ -158,16 +171,15 @@ def calculate(state, rules=None):
         rule = applicable[0] if applicable else None
         if len(applicable) > 1:
             alerts.append('Conflit de règles')
-        discount = decimal(rule['discount']) if rule else decimal(reference.get(
-            market_group(p['brand'], p['season'], p['diameter'])))
+        bf = decimal(p.get('bf'))
+        discount = decimal(rule['discount']) if rule else (1 - market / bf) * 100 if bf is not None and bf > 0 and market is not None and market > 0 else None
         if discount is None:
             alerts.append('Remise marché indisponible')
         pv, variation = None, None
-        bf = decimal(p.get('bf'))
         if bf is None or bf <= 0:
             alerts.append('BF absent ou invalide')
         elif discount is not None and 'Conflit de règles' not in alerts:
-            pv = Decimal(cash(bf * (1 - discount / 100)))
+            pv = Decimal(cash(bf * (1 - discount / 100))) if rule else Decimal(cash(market))
         if pv is not None and pv <= 0:
             alerts.append('PV nul après arrondi au centime')
             pv = None
@@ -196,4 +208,10 @@ def demo():
             market.append({k: p[k] for k in ('ean', 'ref', 'brand', 'dimension', 'load', 'speed', 'season')} | {'price': cash(price), 'date': '2026-10-13', 'source': 'Données fictives'})
     rules = [parse_rule({'id': 'Générale', 'brand': '', 'min': None, 'max': None, 'season': '', 'variation': 0}), parse_rule({'id': 'Michelin', 'brand': 'Michelin', 'min': None, 'max': None, 'season': '', 'variation': 3}), parse_rule({'id': 'Continental 17+ 4S', 'brand': 'Continental', 'min': 17, 'max': 30, 'season': 'Toutes saisons', 'variation': -2})]
     return {'products': products, 'market': market, 'rules': rules, 'baseline': deepcopy(rules), 'imports': [], 'versions': [], 'audit': [], 'settings': {'max_deviation': 15}, 'revision': 0}
+
+
+def empty_state():
+    """Un nouvel espace de production ne contient aucun prix fictif."""
+    return {'products': [], 'market': [], 'rules': [], 'baseline': [], 'imports': [],
+            'versions': [], 'audit': [], 'settings': {'max_deviation': 15}, 'revision': 0}
 

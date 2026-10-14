@@ -7,9 +7,11 @@ from zipfile import ZipFile, BadZipFile
 import pandas as pd
 from .engine import norm, dimension, season, decimal, cash, parse_ean
 
-FIELDS = {'bf': ['manufacturer', 'brand', 'ref', 'ean', 'dimension', 'width', 'height', 'diameter', 'load', 'speed', 'season', 'bf', 'validity'], 'market': ['ean', 'ref', 'brand', 'dimension', 'width', 'height', 'diameter', 'load', 'speed', 'season', 'price', 'date', 'source']}
+FIELDS = {'bf': ['manufacturer', 'brand', 'ref', 'ean', 'dimension', 'width', 'height', 'diameter', 'load', 'speed', 'season', 'profile', 'xl', 'runflat', 'homologation', 'vehicle', 'bf', 'validity'], 'market': ['ean', 'ref', 'brand', 'dimension', 'width', 'height', 'diameter', 'load', 'speed', 'season', 'price', 'date', 'source']}
 LABELS = {'manufacturer': 'Manufacturier', 'brand': 'Marque', 'ref': 'Référence fabricant', 'ean': 'EAN', 'dimension': 'Dimension', 'width': 'Largeur', 'height': 'Série / hauteur', 'diameter': 'Diamètre', 'load': 'Indice de charge', 'speed': 'Indice de vitesse', 'season': 'Saison', 'bf': 'Barème fournisseur HT', 'validity': 'Date de validité', 'price': 'Prix marché HT', 'date': 'Date collecte', 'source': 'Source'}
 ALIASES = {'manufacturer': ['manufacturier', 'manufacturer', 'fournisseur'], 'brand': ['marque', 'brand'], 'ref': ['ref', 'reference', 'reference fabricant', 'reference produit'], 'ean': ['ean', 'code ean', 'gtin'], 'dimension': ['dimension', 'dimensions'], 'width': ['largeur', 'width'], 'height': ['serie', 'hauteur', 'height', 'serie / hauteur'], 'diameter': ['diametre', 'diametre jante', 'diameter'], 'load': ['indice de charge', 'load'], 'speed': ['indice de vitesse', 'speed'], 'season': ['saison', 'season'], 'bf': ['bf', 'bareme fournisseur ht', 'bareme', 'tarif ht'], 'validity': ['date validite', 'date de validite', 'validity'], 'price': ['prix marche ht', 'prix public ht', 'price'], 'date': ['date collecte', 'date de collecte', 'date'], 'source': ['source']}
+LABELS.update(profile='Profil / gamme', xl='XL', runflat='Runflat', homologation='Homologation constructeur', vehicle='Type de véhicule')
+ALIASES.update(profile=['profil', 'gamme', 'profile'], xl=['xl', 'renforce'], runflat=['runflat', 'run flat'], homologation=['homologation', 'homologation constructeur'], vehicle=['vehicule', 'type vehicule', 'vehicle', 'type de vehicule'])
 
 def read_upload(data: bytes, filename: str, sheet=None):
     if len(data) > 5 * 1024 * 1024:
@@ -65,7 +67,9 @@ def import_rows(rows, mapping, kind):
         raise ValueError('Entre 1 et 10 000 lignes attendues.')
     result, errors, seen = [], [], set()
     for i, row in enumerate(rows, 2):
-        get = lambda f: str(row.get(mapping.get(f, ''), '') or '').strip()
+        def get(field):
+            value = row.get(mapping.get(field, ''), '')
+            return str(value if value is not None else '').strip()
         try:
             ean, ref, brand = parse_ean(get('ean')), get('ref'), get('brand')
             dim = dimension(get('dimension'))
@@ -90,7 +94,17 @@ def import_rows(rows, mapping, kind):
             seen.add(key)
             common = {'ean': ean, 'ref': ref, 'brand': brand, 'dimension': dim, 'load': load, 'speed': speed, 'season': seas}
             if kind == 'bf':
-                result.append(common | {'id': str(uuid4()), 'manufacturer': get('manufacturer') or brand, 'diameter': int(dim.split('R')[1]), 'bf': cash(price), 'validity': date})
+                def flag(field):
+                    value = norm(get(field))
+                    if not value:
+                        return None
+                    if value in ('oui', 'yes', 'true', '1'):
+                        return True
+                    if value in ('non', 'no', 'false', '0'):
+                        return False
+                    raise ValueError(f'{LABELS[field]} : oui/non requis.')
+                result.append(common | {'id': str(uuid4()), 'manufacturer': get('manufacturer') or brand, 'diameter': int(dim.split('R')[1]), 'bf': cash(price), 'validity': date,
+                    'profile': get('profile'), 'xl': flag('xl'), 'runflat': flag('runflat'), 'homologation': get('homologation'), 'vehicle': get('vehicle')})
             else:
                 result.append(common | {'price': cash(price), 'date': date, 'source': get('source') or 'Fichier fourni'})
         except ValueError as e:

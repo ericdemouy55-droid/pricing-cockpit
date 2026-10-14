@@ -2,7 +2,7 @@
 import json
 import sqlite3
 from copy import deepcopy
-from .engine import demo
+from .engine import demo, empty_state
 
 class ConflictError(ValueError):
     pass
@@ -38,7 +38,7 @@ class PostgresStore:
         import psycopg
         from psycopg.types.json import Jsonb
         with psycopg.connect(self.url, connect_timeout=10) as con:
-            con.execute('INSERT INTO pricing_workspace(name,payload,revision) VALUES(%s,%s,0) ON CONFLICT(name) DO NOTHING', (workspace, Jsonb(demo())))
+            con.execute('INSERT INTO pricing_workspace(name,payload,revision) VALUES(%s,%s,0) ON CONFLICT(name) DO NOTHING', (workspace, Jsonb(empty_state())))
             payload, revision = con.execute('SELECT payload,revision FROM pricing_workspace WHERE name=%s', (workspace,)).fetchone()
         payload['revision'] = revision
         return payload

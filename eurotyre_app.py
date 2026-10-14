@@ -12,6 +12,8 @@ from eurotyre.analytics import price_indicators, summarize, overall_market_gap
 from eurotyre.rules_grid import cell_key, grid_brands, saved_discounts, market_discounts
 from eurotyre.service import mutate, PERMISSIONS
 from eurotyre.storage import PostgresStore, ConflictError
+from eurotyre.radar import settings as radar_settings
+from eurotyre.radar.ui import backend as radar_backend, current as radar_current, render as render_radar, analysis_export
 
 st.set_page_config(page_title='Outil prix Eurotyre', page_icon='🛞', layout='wide')
 st.markdown('''<style>
@@ -69,7 +71,7 @@ with st.sidebar:
     st.image(str(Path(__file__).parent/'assets'/'eurotyre_logo.png'), width='stretch', alt='Eurotyre — Pneus et services')
     st.caption('PILOTAGE DES PRIX HT')
     st.divider()
-    tab = st.radio('Pilotage tarifaire', ['Vue d’ensemble', 'Imports & rapprochement', 'Règles tarifaires', 'Catalogue', 'Export', 'Versions & diffusion', 'Guide & historique'])
+    tab = st.radio('Pilotage tarifaire', ['Vue d’ensemble', 'Imports & rapprochement', 'Règles tarifaires', 'Catalogue', 'Market Price Radar', 'Export', 'Versions & diffusion', 'Guide & historique'])
     st.divider()
     st.caption({'admin': 'Administrateur', 'pricing': 'Responsable Pricing', 'viewer': 'Consultation'}[role])
     st.write(user)
@@ -86,13 +88,30 @@ if mode == 'demo':
 if st.session_state.get('notice'):
     st.success(st.session_state.pop('notice'))
 
-rows = calculate(state)
+workspace = cfg.get('app', {}).get('workspace', 'eurotyre')
+radar_database = radar_backend(store)
+radar_prices, radar_observations, radar_error = {}, [], None
+if tab == 'Market Price Radar' or radar_settings(state)['enabled'] or tab == 'Export':
+    try:
+        radar_prices, radar_observations = radar_current(state, radar_database, workspace, mode)
+    except Exception:
+        radar_error = 'database'
+        if radar_settings(state)['enabled']:
+            from eurotyre.radar.ui import pilot
+            from eurotyre.radar.market import summary as radar_summary
+            radar_prices = radar_summary(pilot(state), [], radar_settings(state), state['market'], allow_simulated=mode == 'demo')
+            st.error('Le Radar est indisponible : seuls les prix externes récents et valides peuvent servir de repli. La création d’une grille est bloquée jusqu’au rétablissement de l’historique.')
+rows = calculate(state, radar_prices=radar_prices if radar_settings(state)['enabled'] else None)
 matched = [r for r in rows if r['market_price'] is not None]
 alerts = [r for r in rows if r['alerts']]
 can = lambda action: action in PERMISSIONS[role]
 
 def execute(action, **params):
     try:
+        if action == 'version' and radar_settings(state)['enabled']:
+            if radar_error:
+                raise ValueError('Historique Radar indisponible : création de version bloquée.')
+            params['radar_prices'] = radar_prices
         changed = mutate(state, action, role, user, **params)
         if store:
             store.save(changed, state['revision'], cfg.get('app', {}).get('workspace', 'eurotyre'))
@@ -142,6 +161,8 @@ if tab == 'Vue d’ensemble':
         indicator.metric(season_name, f'{Decimal(season_gap):+.2f} %' if season_gap is not None else '—')
     indicators[3].metric('Total', f'{Decimal(global_gap):+.2f} %' if global_gap is not None else '—')
     st.caption('Toutes marques · moyenne des écarts par référence comparable. Total = ensemble des saisons. + = au-dessus du marché ; − = en dessous.')
+    counts = [sum(all(price_indicators(row)[key] is not None for key in ('market_discount', 'retailer_discount', 'market_gap')) for row in rows if row['season'] == name) for name in SEASONS]
+    st.caption(f'Références utilisées : Été {counts[0]} · Hiver {counts[1]} · Toutes saisons {counts[2]} · Total {sum(counts)}. Écart par référence = (prix Eurotyre HT / prix marché HT − 1) × 100.')
     st.subheader('Remises moyennes par marque et saison')
     st.caption('Remise vs BF HT = (1 − prix HT / BF HT) × 100. Les remises et l’écart Eurotyre/marché sont des moyennes sur les mêmes références comparables, sans pondération de volume.')
     brand_filter, season_filter = st.columns(2)
@@ -232,7 +253,7 @@ elif tab == 'Imports & rapprochement':
 
 elif tab == 'Règles tarifaires':
     st.markdown('**Remises BF à appliquer (%)**')
-    st.caption('Prix Eurotyre HT = BF HT × (1 − remise / 100). Cellule vide : la remise de la ligne Marché ci-dessous s’applique automatiquement. 0 % applique le BF sans remise.')
+    st.caption('Prix Eurotyre HT = BF HT × (1 − remise / 100). Cellule vide : alignement sur le prix marché valide de chaque EAN. 0 % applique le BF sans remise.')
     st.caption('Sous chaque ligne : remise moyenne marché / BF, en lecture seule. « — » indique qu’aucun prix marché comparable n’est disponible. Les saisies sont conservées quand tu changes de filtre ; enregistre pour les appliquer.')
     brands = grid_brands(state)
     saved = saved_discounts(state['rules'])
@@ -285,7 +306,7 @@ elif tab == 'Règles tarifaires':
     conflicts = rule_conflicts([r for r in state['rules'] if r.get('base') == 'bf'])
     if conflicts:
         st.error('Conflits bloquants : '+', '.join(conflicts))
-    st.caption('Une remise BF saisie est prioritaire. Une cellule vide utilise la remise moyenne marché de la même marque, saison et tranche de diamètre. Si Marché affiche « — », aucun prix n’est calculé sans remise saisie.')
+    st.caption('Une remise BF saisie est prioritaire. La ligne Marché indique une moyenne informative par groupe. Une cellule vide s’aligne sur le marché propre à chaque pneu ; sans prix marché valide pour cet EAN, aucun prix n’est calculé.')
     st.subheader('Seuils de contrôle')
     with st.form('settings'):
         deviation = st.number_input('Écart absolu maximum au marché (%)', min_value=0., max_value=100., value=float(state['settings']['max_deviation']))
@@ -294,6 +315,9 @@ elif tab == 'Règles tarifaires':
 
 elif tab == 'Catalogue':
     catalogue(filtered(rows))
+
+elif tab == 'Market Price Radar':
+    render_radar(state, rows, radar_database, radar_prices, radar_observations, cfg, mode, workspace, can, execute, user, radar_error)
 
 elif tab == 'Export':
     export_rows, export_rules = rows, state['rules']
@@ -331,6 +355,15 @@ elif tab == 'Export':
         'Remise BF (%)': st.column_config.NumberColumn(format='%.2f %%',
             help='Remise BF appliquée : saisie enregistrée ou, si la cellule est vide, remise moyenne de la ligne Marché correspondante.'),
     })
+    st.subheader('Analyse concurrentielle')
+    if radar_error:
+        st.info('L’historique concurrentiel est indisponible.')
+    else:
+        analysis = analysis_export(state, radar_prices, rows)
+        st.caption('Scénario de travail daté · sources et qualité incluses · cette analyse ne publie aucune grille.')
+        a, b = st.columns(2)
+        a.download_button('Analyse Radar Excel', excel_bytes(analysis), file_name='Eurotyre_Radar.xlsx', disabled=analysis.empty, key='export_radar_excel')
+        b.download_button('Analyse Radar CSV', csv_bytes(analysis), file_name='Eurotyre_Radar.csv', disabled=analysis.empty, key='export_radar_csv')
 
 elif tab == 'Versions & diffusion':
     st.info('Brouillon → contrôle et validation → publication interne. Toute anomalie est bloquante dans cette V1. Aucun envoi aux franchisés ou aux ERP n’est déclenché.')

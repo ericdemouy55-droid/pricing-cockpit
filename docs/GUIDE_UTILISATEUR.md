@@ -21,7 +21,7 @@
 - Administrateur et Responsable Pricing : tarif courant issu des règles enregistrées. Une saisie non enregistrée dans la grille BF ne modifie pas l’export.
 - Consultation : sélectionner une version validée ou publiée ; aucune exportation d’un brouillon ou du tarif courant.
 - Les fichiers contiennent exactement cinq colonnes, dans cet ordre : Marque, Saison, Code EAN, Prix HT, Remise BF (%).
-- La remise BF est le taux appliqué : remise enregistrée si la cellule est renseignée, sinon remise moyenne de la ligne Marché correspondante. Les valeurs sont arrondies à deux décimales. Les versions archivées conservent leurs prix et remises historiques.
+- La remise BF est le taux appliqué : remise enregistrée si la cellule est renseignée, sinon remise équivalente au prix marché valide du pneu concerné. Les valeurs affichées sont arrondies à deux décimales. Les versions archivées conservent leurs prix et remises historiques.
 - Les prix et remises absents ne sont pas inventés. Un code EAN manquant reste vide et est signalé. Les exports détaillés des versions validées restent disponibles dans Versions & diffusion.
 
 ## Règles tarifaires — remises BF
@@ -29,8 +29,8 @@
 - Sous chaque ligne de saisie, la ligne « Marché (info) » indique la remise BF moyenne constatée pour cette marque, cette saison et cette tranche de diamètre : moyenne de (1 − prix marché HT / BF HT) × 100. Elle est en lecture seule et ne dépend pas des remises saisies.
 - Sans prix marché comparable, la cellule affiche « — ». Les valeurs absentes ne sont pas remplacées par zéro. 19 pouces et + couvre les diamètres acceptés par le catalogue, jusqu’à 30 pouces.
 - Les saisies sont conservées lors d’un changement de filtre, puis enregistrées ensemble. Elles restent temporaires en mode démo.
-- Une remise BF renseignée est prioritaire, y compris 0 %. Une cellule vide applique automatiquement la remise moyenne affichée sur la ligne Marché de la même marque, saison et tranche de diamètre. Effacer une remise BF puis enregistrer rétablit cette remise marché. Les anciennes variations ne s’appliquent plus aux cellules vides ; leurs données restent archivées.
-- Le taux moyen marché est arrondi à deux décimales avant application, comme celui affiché dans la grille. Il peut servir pour un produit sans prix marché individuel si d’autres références comparables fournissent le taux de sa cellule ; son prix marché individuel reste absent et signalé. Si la ligne Marché affiche « — », aucun prix Eurotyre n’est calculé sans remise saisie.
+- Une remise BF renseignée est prioritaire, y compris 0 %. Une cellule vide s’aligne sur le prix marché valide propre à chaque EAN. Effacer une remise puis enregistrer rétablit cet alignement. Les anciennes variations restent archivées.
+- La ligne Marché présente une moyenne informative. Son taux ne fournit jamais de prix à un autre pneu sans marché individuel. La remise implicite propre au pneu est calculée avant arrondi pour conserver l’alignement exact au centime. Sans BF ou prix marché valide, aucun prix automatique n’est créé.
 - Les seuils contrôlent l’écart réel du prix Eurotyre au marché, et non le taux de remise BF. Les alertes de marché absent ou ambigu restent bloquantes pour valider une version, même si le prix Eurotyre peut être calculé à partir du BF.
 
 ## Vue d’ensemble — Outil prix Eurotyre

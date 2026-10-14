@@ -5,7 +5,7 @@ from .engine import calculate, parse_rule, rule_conflicts, decimal
 from .imports import import_rows
 from .rules_grid import apply_discounts
 
-PERMISSIONS = {'admin': {'import', 'rules', 'bf_grid', 'settings', 'baseline', 'version', 'validate', 'publish'}, 'pricing': {'rules', 'bf_grid', 'settings', 'baseline', 'version', 'validate', 'publish'}, 'viewer': set()}
+PERMISSIONS = {'admin': {'import', 'rules', 'bf_grid', 'settings', 'radar_settings', 'radar_demo', 'radar_collect', 'radar_review', 'baseline', 'version', 'validate', 'publish'}, 'pricing': {'rules', 'bf_grid', 'settings', 'radar_settings', 'radar_collect', 'radar_review', 'baseline', 'version', 'validate', 'publish'}, 'viewer': set()}
 
 def mutate(state, action, role, user='Démo', **params):
     if action not in PERMISSIONS.get(role, set()):
@@ -37,11 +37,37 @@ def mutate(state, action, role, user='Démo', **params):
             raise ValueError('Seuils invalides.')
         s['settings'] = {'max_deviation': float(b)}
         detail = 'Modification des seuils'
+    elif action == 'radar_settings':
+        from .radar import settings, RETAILERS
+        from .radar.catalog import select_pilot
+        config = settings(s)
+        config.update(params['config'])
+        if config['method'] not in ('median', 'mean', 'min', 'max') or not 1 <= int(config['freshness_days']) <= 90:
+            raise ValueError('Méthode marché ou règle de fraîcheur invalide.')
+        if not str(config['zone']).strip() or len(str(config['zone'])) > 200:
+            raise ValueError('Zone de référence requise (200 caractères maximum).')
+        if not 1 <= float(config['max_price_change']) <= 100:
+            raise ValueError('Seuil de variation entre 1 et 100 % requis.')
+        config['centers'] = {name: str(config.get('centers', {}).get(name) or '')[:200] for name in RETAILERS}
+        select_pilot(s['products'], manual=config['selected_eans'])
+        s['radar'] = config
+        detail = f"Paramètres Radar : {len(config['selected_eans'])} références · {config['zone']}"
+    elif action == 'radar_demo':
+        if params.get('demo_mode') is not True:
+            raise ValueError('Le pilote fictif est réservé au mode démonstration.')
+        from .radar import settings, RETAILERS
+        from .radar.catalog import demo_catalog
+        s['products'] = demo_catalog()
+        config = settings(s)
+        config.update(enabled=True, selected_eans=[p['ean'] for p in s['products']],
+                      centers={name: 'CENTRE-SIMULÉ-COMPIÈGNE' for name in RETAILERS})
+        s['radar'] = config
+        detail = 'Chargement explicite du catalogue fictif Radar — 200 références'
     elif action == 'baseline':
         s['baseline'] = deepcopy(s['rules'])
         detail = 'Scénario de référence enregistré'
     elif action == 'version':
-        s['versions'].insert(0, {'id': f"V{len(s['versions']) + 1}", 'date': now, 'status': 'Brouillon', 'rows': calculate(s), 'rules': deepcopy([r for r in s['rules'] if r.get('base') == 'bf']), 'settings': deepcopy(s['settings'])})
+        s['versions'].insert(0, {'id': f"V{len(s['versions']) + 1}", 'date': now, 'status': 'Brouillon', 'rows': calculate(s, radar_prices=params.get('radar_prices')), 'rules': deepcopy([r for r in s['rules'] if r.get('base') == 'bf']), 'settings': deepcopy(s['settings']), 'radar_settings': deepcopy(s.get('radar', {}))})
         detail = 'Création version brouillon'
     elif action in ('validate', 'publish'):
         version = next((v for v in s['versions'] if v['id'] == params['id']), None)

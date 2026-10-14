@@ -44,7 +44,7 @@ class AppTests(unittest.TestCase):
         app = AppTest.from_file(APP,default_timeout=30).run()
         self.assertFalse(app.exception, [e.message for e in app.exception])
         self.assertNotIn('Simulation', app.sidebar.radio[0].options)
-        for tab in ('Imports & rapprochement','Règles tarifaires','Catalogue','Export','Versions & diffusion','Guide & historique','Vue d’ensemble'):
+        for tab in ('Imports & rapprochement','Règles tarifaires','Catalogue','Market Price Radar','Export','Versions & diffusion','Guide & historique','Vue d’ensemble'):
             app.sidebar.radio[0].set_value(tab).run()
             self.assertFalse(app.exception, [e.message for e in app.exception])
 
@@ -59,11 +59,11 @@ class AppTests(unittest.TestCase):
         self.assertFalse(app.exception, [e.message for e in app.exception])
         frame = app.dataframe[0].value
         self.assertEqual(frame.columns.tolist(), ['Marque', 'Saison', 'Code EAN', 'Prix HT', 'Remise BF (%)'])
-        self.assertEqual(len(frame), 68)
+        self.assertEqual(len(frame), 66)
         row = frame.loc[frame['Code EAN'].eq('2000000000036')].iloc[0]
         self.assertEqual(row['Prix HT'], 70.08)
         self.assertEqual(row['Remise BF (%)'], 40)
-        self.assertTrue(any('4 références sans prix calculé' in message.value for message in app.info))
+        self.assertTrue(any('6 références sans prix calculé' in message.value for message in app.info))
 
     def test_bf_grid_filters_draft_save_and_clear(self):
         app = AppTest.from_file(APP, default_timeout=30).run()

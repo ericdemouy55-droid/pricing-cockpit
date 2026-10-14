@@ -14,7 +14,7 @@ class CompactExportTests(unittest.TestCase):
             'brand': 'Michelin', 'season': 'Été', 'min': 16, 'max': 16, 'discount': '40'}])
         frame = pricing_export_frame(calculate(state), state['rules'])
         self.assertEqual(frame.columns.tolist(), PRICING_COLUMNS)
-        self.assertEqual(len(frame), 68)
+        self.assertEqual(len(frame), 66)
         row = frame.loc[frame['Code EAN'].eq('2000000000036')].iloc[0]
         self.assertEqual(row['Prix HT'], 70.08)
         self.assertEqual(row['Remise BF (%)'], 40)
